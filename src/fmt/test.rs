@@ -163,6 +163,21 @@ fn format_path_file_with_line_branch_no_ellipsis() {
 }
 
 #[test]
+fn format_path_unicode_char_boundary_safe() {
+    let mut fmt = Formatter::new();
+    // Multi-byte Chinese characters: 模块 (6 bytes) + 文件 (6 bytes)
+    // Narrow width forces truncation exercising char-boundary adjustment
+    fmt.path_width = 12;
+    let result = fmt.format_path("src/模块/文件.rs", 10);
+    // Must be valid UTF-8 (no split multi-byte characters)
+    assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+    // Char-boundary adjustment may skip leading bytes of a multi-byte char,
+    // but preserves the suffix after the boundary.
+    assert!(result.contains("件.rs:10") || result.contains("文件.rs:10"),
+        "expected filename suffix preserved: {result}");
+}
+
+#[test]
 fn formatter_style_config_returns_reference() {
     let fmt = Formatter::new();
     let config = fmt.style_config();

@@ -136,9 +136,9 @@ impl Formatter {
         let max_width = self.path_width;
 
         let relative = file
-            .split("src/")
-            .nth(1)
-            .or_else(|| file.split("src\\").nth(1))
+            .split_once("src/")
+            .map(|(_, tail)| tail)
+            .or_else(|| file.split_once("src\\").map(|(_, tail)| tail))
             .unwrap_or(file);
 
         let path_str = relative.replace('\\', "/");
@@ -165,10 +165,8 @@ impl Formatter {
                     .rfind('/')
                     .map_or(dir_tail, |i| &dir_tail[i + 1..]);
 
-                let mut result = String::with_capacity(max_width);
-                use std::fmt::Write;
-                let _ = write!(result, "{clean_dir}/{file_with_line}");
-                return result;
+                let formatted = format!("{clean_dir}/{file_with_line}");
+                return format!("{formatted:>max_width$}");
             }
         }
 
