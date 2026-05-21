@@ -1,51 +1,87 @@
-use ansi_colours::ansi256_from_rgb;
-use owo_colors::{DynColors, Style as OwoStyle, XtermColors};
+use anstyle_lossy::palette::Palette;
+use anstyle_lossy::rgb_to_ansi;
+use owo_colors::AnsiColors;
+use owo_colors::Rgb;
+use owo_colors::Style as OwoStyle;
+use owo_colors::XtermColors;
 
-use crate::color::mapping::rgb_to_ansi16;
-use crate::config::ColorDepth;
+use crate::ColorDepth;
 
-pub fn rgb_to_owo(rgb: (u8, u8, u8), depth: ColorDepth) -> OwoStyle {
-    let r = rgb.0;
-    let g = rgb.1;
-    let b = rgb.2;
+#[derive(Clone, Copy, Debug)]
+pub struct Styled {
+    rgb: Rgb,
+    depth: ColorDepth,
+    on: bool,
+}
 
-    match depth {
-        ColorDepth::TrueColor => OwoStyle::new().color(DynColors::Rgb(r, g, b)),
-        ColorDepth::Ansi256 => {
-            let idx = ansi256_from_rgb((r, g, b));
-            OwoStyle::new().color(DynColors::Xterm(XtermColors::from(idx)))
+impl Styled {
+    pub(crate) const fn new(rgb: Rgb, depth: ColorDepth) -> Self {
+        Self {
+            rgb,
+            depth,
+            on: false,
         }
-        ColorDepth::Ansi16 => {
-            let c = rgb_to_ansi16(r, g, b);
-            OwoStyle::new().color(DynColors::Ansi(c))
-        }
-        ColorDepth::NoColor => OwoStyle::new(),
+    }
+
+    pub(crate) const fn dimmed(mut self) -> Self {
+        self.rgb = Rgb(self.rgb.0 >> 2, self.rgb.1 >> 2, self.rgb.2 >> 2);
+        self
+    }
+
+    pub(crate) const fn on(mut self) -> Self {
+        self.on = true;
+        self
+    }
+
+    pub(crate) const fn as_tuple(&self) -> (u8, u8, u8) {
+        (self.rgb.0, self.rgb.1, self.rgb.2)
     }
 }
 
-/// Dims the foreground by dividing brightness by 4 to ensure high text legibility against the background.
-pub fn rgb_to_owo_on(r: u8, g: u8, b: u8, depth: ColorDepth) -> OwoStyle {
-    let dr = r >> 2;
-    let dg = g >> 2;
-    let db = b >> 2;
-    match depth {
-        ColorDepth::TrueColor => OwoStyle::new()
-            .color(DynColors::Rgb(dr, dg, db))
-            .on_color(DynColors::Rgb(r, g, b)),
-        ColorDepth::Ansi256 => OwoStyle::new()
-            .color(DynColors::Xterm(XtermColors::from(ansi256_from_rgb((
-                dr, dg, db,
-            )))))
-            .on_color(DynColors::Xterm(XtermColors::from(ansi256_from_rgb((
-                r, g, b,
-            ))))),
-        ColorDepth::Ansi16 => OwoStyle::new()
-            .color(DynColors::Ansi(rgb_to_ansi16(dr, dg, db)))
-            .on_color(DynColors::Ansi(rgb_to_ansi16(r, g, b))),
-        ColorDepth::NoColor => OwoStyle::new(),
+impl From<Styled> for OwoStyle {
+    fn from(s: Styled) -> Self {
+        let style = Self::new();
+        match s.depth {
+            ColorDepth::TrueColor => {
+                if s.on {
+                    return style.on_truecolor(s.rgb.0, s.rgb.1, s.rgb.2);
+                }
+                style.truecolor(s.rgb.0, s.rgb.1, s.rgb.2)
+            }
+            ColorDepth::Ansi256 => {
+                let ansi = XtermColors::from(ansi_colours::ansi256_from_rgb(s.as_tuple()));
+                if s.on {
+                    return style.on_color(ansi);
+                }
+                style.color(ansi)
+            }
+            ColorDepth::Ansi16 => {
+                let ansi = *[
+                    AnsiColors::Black,
+                    AnsiColors::Red,
+                    AnsiColors::Green,
+                    AnsiColors::Yellow,
+                    AnsiColors::Blue,
+                    AnsiColors::Magenta,
+                    AnsiColors::Cyan,
+                    AnsiColors::White,
+                    AnsiColors::BrightBlack,
+                    AnsiColors::BrightRed,
+                    AnsiColors::BrightGreen,
+                    AnsiColors::BrightYellow,
+                    AnsiColors::BrightBlue,
+                    AnsiColors::BrightMagenta,
+                    AnsiColors::BrightCyan,
+                    AnsiColors::BrightWhite,
+                ]
+                .get(rgb_to_ansi(s.as_tuple().into(), Palette::default()) as usize)
+                .unwrap_or(&AnsiColors::White);
+                if s.on {
+                    return style.on_color(ansi);
+                }
+                style.color(ansi)
+            }
+            ColorDepth::NoColor => style,
+        }
     }
-}
-
-pub fn theme_fg_dimmed(rgb: (u8, u8, u8), depth: ColorDepth) -> OwoStyle {
-    rgb_to_owo((rgb.0 >> 2, rgb.1 >> 2, rgb.2 >> 2), depth)
 }
