@@ -272,7 +272,7 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
     )));
 
     let mut layers: Vec<BoxedLayer> = Vec::with_capacity(writers.len());
-    let mut shared_style_used = false;
+    #[cfg(feature = "file")]
     #[cfg(feature = "file")]
     let mut file_guard = None;
     #[cfg(feature = "file")]
@@ -284,10 +284,7 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
         #[cfg(not(feature = "file"))]
         let eligible = true;
 
-        let handle = (eligible && !shared_style_used).then(|| {
-            shared_style_used = true;
-            shared_style.clone()
-        });
+        let handle = eligible.then(|| shared_style.clone());
 
         #[cfg(feature = "file")]
         if let WriterTarget::File { ref path, rotation } = writer.target {
