@@ -40,7 +40,6 @@ serde = { version = "1", features = ["derive"], optional = true }
 tracing = "0.1"
 tracing-log = "0.2"
 smallvec = "1"
-arrayvec = "0.7"
 tracing-appender = { version = "0.2", optional = true }
 nerd-font-symbols = { version = "0.3.0", optional = true }
 tokio = { version = "1", default-features = false, features = [
@@ -57,14 +56,10 @@ tracing-subscriber = { version = "0.3", features = [
     "ansi",
     "std",
 ] }
-smart-default = "0.7.1"
 supports-color = "3"
 ansi_colours = "1.2"
 anstyle-lossy = "1.1"
-anstyle = "1"
 arc-swap = "1.7.1"
-derive_more = { version = "2.0.0", features = ["full"] }
-tap = "1.0.1"
 compact_str = { version = "0.9", features = ["serde"] }
 
 [build-dependencies]
