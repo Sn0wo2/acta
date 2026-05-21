@@ -15,7 +15,76 @@ use tracing_subscriber::prelude::*;
 use crate::writer;
 
 pub(crate) type BoxedLayer = Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>;
-pub(crate) type InnerSubscriber = Layered<Vec<BoxedLayer>, Registry>;
+
+/// Newtype wrapping Vec<BoxedLayer> to avoid orphan-rule reliance on
+/// tracing-subscriber's blanket `impl Layer<S> for Vec<L>`.
+pub(crate) struct Layers(pub(crate) Vec<BoxedLayer>);
+
+impl tracing_subscriber::Layer<Registry> for Layers {
+    fn on_layer(&mut self, subscriber: &mut Registry) {
+        for layer in &mut self.0 {
+            layer.on_layer(subscriber);
+        }
+    }
+
+    fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
+        for layer in &self.0 {
+            layer.on_new_span(attrs, id, ctx.clone());
+        }
+    }
+
+    fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
+        for layer in &self.0 {
+            layer.on_event(event, ctx.clone());
+        }
+    }
+
+    fn on_enter(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
+        for layer in &self.0 {
+            layer.on_enter(id, ctx.clone());
+        }
+    }
+
+    fn on_exit(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
+        for layer in &self.0 {
+            layer.on_exit(id, ctx.clone());
+        }
+    }
+
+    fn on_close(&self, id: tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
+        for layer in &self.0 {
+            layer.on_close(id.clone(), ctx.clone());
+        }
+    }
+
+    fn on_record(&self, id: &tracing::span::Id, values: &tracing::span::Record<'_>, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
+        for layer in &self.0 {
+            layer.on_record(id, values, ctx.clone());
+        }
+    }
+
+    fn on_follows_from(&self, id: &tracing::span::Id, follows: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
+        for layer in &self.0 {
+            layer.on_follows_from(id, follows, ctx.clone());
+        }
+    }
+
+    fn on_id_change(&self, old: &tracing::span::Id, new: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
+        for layer in &self.0 {
+            layer.on_id_change(old, new, ctx.clone());
+        }
+    }
+
+    fn enabled(&self, metadata: &tracing::Metadata<'_>, ctx: tracing_subscriber::layer::Context<'_, Registry>) -> bool {
+        self.0.iter().any(|layer| layer.enabled(metadata, ctx.clone()))
+    }
+
+    fn event_enabled(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, Registry>) -> bool {
+        self.0.iter().any(|layer| layer.event_enabled(event, ctx.clone()))
+    }
+}
+
+pub(crate) type InnerSubscriber = Layered<Layers, Registry>;
 pub(crate) type ReloadHandle =
     tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, InnerSubscriber>;
 
@@ -235,7 +304,7 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
     let env_filter = tracing_subscriber::EnvFilter::try_new(filter.as_directive())?;
     let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(env_filter);
 
-    let subscriber = Registry::default().with(layers).with(env_filter_layer);
+    let subscriber = Registry::default().with(Layers(layers)).with(env_filter_layer);
 
     let _ = tracing_log::LogTracer::init();
     tracing::subscriber::set_global_default(subscriber)?;

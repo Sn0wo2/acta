@@ -4,7 +4,7 @@ use std::io;
 use std::sync::Arc;
 
 use super::*;
-use crate::builder::{BoxedLayer, ReloadHandle, build_layer};
+use crate::builder::{BoxedLayer, Layers, ReloadHandle, build_layer};
 use crate::config::LayerConfig;
 use tracing_subscriber::Registry;
 use tracing_subscriber::layer::Layered;
@@ -27,7 +27,7 @@ fn build_test_guard(level: Level, style: Style) -> (TracingGuard, TestSubscriber
             .boxed(),
     ];
 
-    let subscriber = Registry::default().with(layers).with(env_layer);
+    let subscriber = Registry::default().with(Layers(layers)).with(env_layer);
 
     let guard = TracingGuard {
         raw,
@@ -132,4 +132,58 @@ fn acta_error_from_io_error() {
     let io_err = io::Error::new(io::ErrorKind::PermissionDenied, "access denied");
     let error: ActaError = io_err.into();
     assert!(matches!(error, ActaError::Io(_)));
+}
+
+#[test]
+fn set_filter_with_raw_directive_updates_guard() {
+    let (mut guard, _subscriber) = build_test_guard(Level::Info, Style::default());
+    let filter = Filter::from_directive("info,my_crate=debug");
+    guard
+        .set_filter(filter)
+        .expect("set_filter with raw directive should succeed");
+    assert_eq!(
+        guard.filter.as_directive(),
+        "info,my_crate=debug",
+        "guard.filter should reflect the raw directive applied via set_filter"
+    );
+}
+
+#[test]
+fn set_level_after_filter_replaces_with_simple_level_directive() {
+    let (mut guard, _subscriber) = build_test_guard(Level::Info, Style::default());
+    guard
+        .set_filter(Filter::from_directive("info,my_crate=debug"))
+        .expect("set_filter should succeed");
+    guard
+        .set_level(Level::Warn)
+        .expect("set_level(Level::Warn) should succeed");
+    assert_eq!(
+        guard.filter.as_directive(),
+        "warn",
+        "set_level should replace the filter with a simple level directive"
+    );
+}
+
+#[test]
+fn set_target_level_after_raw_directive_adds_per_target_override() {
+    let (mut guard, _subscriber) = build_test_guard(Level::Info, Style::default());
+    guard
+        .set_filter(Filter::from_directive("info,my_crate=debug"))
+        .expect("initial set_filter should succeed");
+    guard
+        .set_target_level("demo", Level::Trace)
+        .expect("set_target_level should succeed after set_filter");
+    let directive = guard.filter.as_directive();
+    assert!(
+        directive.contains("info"),
+        "directive should still include base level after set_target_level: {directive}"
+    );
+    assert!(
+        directive.contains("my_crate=debug"),
+        "directive should retain existing per-target override after set_target_level: {directive}"
+    );
+    assert!(
+        directive.contains("demo=trace"),
+        "directive should include the new per-target override: {directive}"
+    );
 }
