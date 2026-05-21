@@ -1,19 +1,11 @@
 #![allow(clippy::expect_used)]
 
 fn main() {
-    let max = match acta_build::walk_src_max_width("src", "src/") {
-        Ok(m) => m,
-        Err(e) => {
-            println!("cargo::warning=walk_src_max_width failed: {e}");
-            20
-        }
-    };
-    std::fs::write(
-        std::path::Path::new(&std::env::var("OUT_DIR").expect("Cargo should set OUT_DIR"))
-            .join("path_width"),
-        max.to_string(),
-    )
-    .expect("failed to write path_width to OUT_DIR");
-
+    let width = acta_build::walk_src_max_width("src", "src/");
+    let out_dir = std::env::var_os("OUT_DIR").expect("Cargo should set OUT_DIR");
+    let path = std::path::Path::new(&out_dir).join("path_width");
+    if let Err(e) = std::fs::write(&path, width.to_string()) {
+        println!("cargo::warning=failed to write {}: {e}", path.display());
+    }
     println!("cargo::rerun-if-changed=src");
 }

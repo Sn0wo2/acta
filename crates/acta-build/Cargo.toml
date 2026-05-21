@@ -2,7 +2,7 @@
 name = "acta-build"
 version.workspace = true
 edition = "2024"
-description = "Build-time helper for acta path width calculation"
+description = "Build-time helper for acta: compute path-column width from a project's source tree"
 repository = "https://github.com/Sn0wo2/acta"
 publish = true
 license = "Apache-2.0"
