@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::unnecessary_map_or
+)]
+
 use crate::Rotation;
 use crate::writer::file::{build_file_layer, resolve_log_path, rotate_log_file};
 

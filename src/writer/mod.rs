@@ -10,7 +10,7 @@ pub mod custom;
 
 #[cfg(feature = "custom-async")]
 #[allow(clippy::module_name_repetitions)]
-pub use custom::{AsyncWriter, async_writer, async_writer_for};
+pub use custom::{AsyncWriter, async_writer_for};
 
 #[cfg(feature = "native-async")]
 pub mod native;
