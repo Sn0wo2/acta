@@ -1,9 +1,11 @@
+#![allow(clippy::indexing_slicing)]
+
 use super::*;
 
 #[test]
 fn config_default() {
     let config = Config::default();
-    assert!(matches!(config.level, Level::Info));
+    assert_eq!(config.filter.as_directive(), "info");
     assert_eq!(config.writers.len(), 1);
     let w = &config.writers[0];
     assert!(matches!(w.format, Format::Compact(_)));
@@ -29,8 +31,16 @@ fn config_builder() {
         .level(Level::Debug)
         .with_writer(Writer::default())
         .build();
-    assert_eq!(cfg.level.as_directive(), "debug");
+    assert_eq!(cfg.filter.as_directive(), "debug");
     assert_eq!(cfg.writers.len(), 1);
+}
+
+#[test]
+fn config_builder_filter() {
+    let cfg = Config::builder()
+        .filter(Filter::from_directive("info,my_crate=debug"))
+        .build();
+    assert_eq!(cfg.filter.as_directive(), "info,my_crate=debug");
 }
 
 #[test]
@@ -60,9 +70,18 @@ fn level_directives() {
 }
 
 #[test]
-fn level_custom_directive() {
-    let level = Level::Custom("info,my_crate=debug".into());
-    assert_eq!(level.as_directive(), "info,my_crate=debug");
+fn filter_from_directive() {
+    let f = Filter::from_directive("info,my_crate=debug");
+    assert_eq!(f.as_directive(), "info,my_crate=debug");
+}
+
+#[test]
+fn filter_from_directive_with_extra_target() {
+    let mut f = Filter::from_directive("info,bar=warn");
+    f.with_target("foo", Level::Trace);
+    let directive = f.as_directive();
+    assert!(directive.starts_with("info,bar=warn"));
+    assert!(directive.contains("foo=trace"));
 }
 
 #[test]
@@ -120,6 +139,12 @@ fn filter_from_level() {
 fn filter_from_level_debug() {
     let filter: Filter = Level::Debug.into();
     assert_eq!(filter.as_directive(), "debug");
+}
+
+#[test]
+fn filter_default_is_info() {
+    let filter = Filter::default();
+    assert_eq!(filter.as_directive(), "info");
 }
 
 #[test]

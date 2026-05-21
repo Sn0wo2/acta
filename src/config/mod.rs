@@ -4,10 +4,6 @@ use std::collections::HashMap;
 #[cfg(feature = "file")]
 use std::path::PathBuf;
 
-pub mod depth;
-
-pub use depth::detect;
-
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -144,7 +140,7 @@ impl Default for Icons {
 type Rgb = (u8, u8, u8);
 
 #[derive(Clone, Copy, Debug)]
-#[non_exhaustive]
+#[allow(clippy::exhaustive_structs)]
 pub struct Theme {
     pub accent: Rgb,
     pub secondary: Rgb,
@@ -158,7 +154,7 @@ pub struct Theme {
 
 impl Theme {
     #[allow(clippy::too_many_arguments)]
-    pub const fn new(
+    const fn from_palette(
         accent: Rgb,
         secondary: Rgb,
         text: Rgb,
@@ -179,10 +175,7 @@ impl Theme {
             trace,
         }
     }
-    ///
-    /// light blue, pink, white, bright red, gold, off white
-    /// with some dimmed for terminal readability.
-    #[rustfmt::skip] // 让下面的颜色对齐
+    #[rustfmt::skip]
     pub const fn acta() -> Self {
         const LIGHT_BLUE:  Rgb = (91, 206, 250);  // #5BCEFA
         const PINK:        Rgb = (245, 169, 184); // #F5A9B8
@@ -190,115 +183,84 @@ impl Theme {
         const BRIGHT_RED:  Rgb = (255, 85, 85);   // #FF5555
         const GOLD:        Rgb = (255, 200, 60);  // #FFC83C
         const OFF_WHITE:   Rgb = (240, 240, 240); // #F0F0F0
-
-        Self::new(
-            LIGHT_BLUE, PINK, WHITE, BRIGHT_RED, GOLD, LIGHT_BLUE, PINK, OFF_WHITE,
-        )
+        Self::from_palette(LIGHT_BLUE, PINK, WHITE, BRIGHT_RED, GOLD, LIGHT_BLUE, PINK, OFF_WHITE)
     }
 
-    ///
-    /// cyan, pink, white, bright red, gold, gray
-    /// with some dimmed for terminal readability.
-    #[rustfmt::skip] // ↑
+    #[rustfmt::skip]
     pub const fn monokai() -> Self {
-        const CYAN:       Rgb = (102, 217, 239);  // #66D9EF
-        const PINK:       Rgb = (249, 38, 114);   // #F92672
-        const WHITE:      Rgb = (248, 248, 242);  // #F8F8F2
-        const BRIGHT_RED: Rgb = (255, 85, 85);    // #FF5555
-        const GOLD:       Rgb = (255, 200, 60);   // #FFC83C
-        const GRAY:       Rgb = (180, 180, 180);  // #B4B4B4
-
-        Self::new(CYAN, PINK, WHITE, BRIGHT_RED, GOLD, CYAN, PINK, GRAY)
+        const CYAN:       Rgb = (102, 217, 239); // #66D9EF
+        const PINK:       Rgb = (249, 38, 114);  // #F92672
+        const WHITE:      Rgb = (248, 248, 242); // #F8F8F2
+        const BRIGHT_RED: Rgb = (255, 85, 85);   // #FF5555
+        const GOLD:       Rgb = (255, 200, 60);  // #FFC83C
+        const GRAY:       Rgb = (180, 180, 180); // #B4B4B4
+        Self::from_palette(CYAN, PINK, WHITE, BRIGHT_RED, GOLD, CYAN, PINK, GRAY)
     }
 
-    ///
-    /// cyan, pink, white, bright red, gold, gray
-    /// with some dimmed for terminal readability.
-    #[rustfmt::skip] // ↑
+    #[rustfmt::skip]
     pub const fn dracula() -> Self {
-        const CYAN:       Rgb = (139, 233, 253);  // #8BE9FD
-        const PINK:       Rgb = (255, 121, 198);  // #FF79C6
-        const WHITE:      Rgb = (248, 248, 242);  // #F8F8F2
-        const BRIGHT_RED: Rgb = (255, 85, 85);    // #FF5555
-        const GOLD:       Rgb = (255, 200, 60);   // #FFC83C
-        const GRAY:       Rgb = (180, 180, 180);  // #B4B4B4
-
-        Self::new(CYAN, PINK, WHITE, BRIGHT_RED, GOLD, CYAN, PINK, GRAY)
+        const CYAN:       Rgb = (139, 233, 253); // #8BE9FD
+        const PINK:       Rgb = (255, 121, 198); // #FF79C6
+        const WHITE:      Rgb = (248, 248, 242); // #F8F8F2
+        const BRIGHT_RED: Rgb = (255, 85, 85);   // #FF5555
+        const GOLD:       Rgb = (255, 200, 60);  // #FFC83C
+        const GRAY:       Rgb = (180, 180, 180); // #B4B4B4
+        Self::from_palette(CYAN, PINK, WHITE, BRIGHT_RED, GOLD, CYAN, PINK, GRAY)
     }
 
-    ///
-    /// blue, green, white, red, yellow, gray
-    /// with some dimmed for terminal readability.
-    #[rustfmt::skip] // ↑
+    #[rustfmt::skip]
     pub const fn nord() -> Self {
-        const BLUE:       Rgb = (136, 192, 208);  // #88C0D0
-        const GREEN:      Rgb = (163, 190, 140);  // #A3BE8C
-        const WHITE:      Rgb = (216, 222, 233);  // #D8DEE9
-        const RED:        Rgb = (191, 97, 106);   // #BF616A
-        const YELLOW:     Rgb = (235, 203, 139);  // #EBCB8B
-        const GRAY:       Rgb = (180, 180, 180);  // #B4B4B4
-
-        Self::new(BLUE, GREEN, WHITE, RED, YELLOW, BLUE, GREEN, GRAY)
+        const BLUE:   Rgb = (136, 192, 208); // #88C0D0
+        const GREEN:  Rgb = (163, 190, 140); // #A3BE8C
+        const WHITE:  Rgb = (216, 222, 233); // #D8DEE9
+        const RED:    Rgb = (191, 97, 106);  // #BF616A
+        const YELLOW: Rgb = (235, 203, 139); // #EBCB8B
+        const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
+        Self::from_palette(BLUE, GREEN, WHITE, RED, YELLOW, BLUE, GREEN, GRAY)
     }
 
-    ///
-    /// blue, mauve, text, red, yellow, gray
-    /// with some dimmed for terminal readability.
-    #[rustfmt::skip] // ↑
+    #[rustfmt::skip]
     pub const fn catppuccin_mocha() -> Self {
-        const BLUE:       Rgb = (137, 180, 250);  // #89B4FA
-        const MAUVE:      Rgb = (203, 166, 247);  // #CBA6F7
-        const TEXT:       Rgb = (205, 214, 244);  // #CDD6F4
-        const RED:        Rgb = (243, 139, 168);  // #F38BA8
-        const YELLOW:     Rgb = (249, 226, 175);  // #F9E2AF
-        const GRAY:       Rgb = (180, 180, 180);  // #B4B4B4
-
-        Self::new(BLUE, MAUVE, TEXT, RED, YELLOW, BLUE, MAUVE, GRAY)
+        const BLUE:   Rgb = (137, 180, 250); // #89B4FA
+        const MAUVE:  Rgb = (203, 166, 247); // #CBA6F7
+        const TEXT:   Rgb = (205, 214, 244); // #CDD6F4
+        const RED:    Rgb = (243, 139, 168); // #F38BA8
+        const YELLOW: Rgb = (249, 226, 175); // #F9E2AF
+        const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
+        Self::from_palette(BLUE, MAUVE, TEXT, RED, YELLOW, BLUE, MAUVE, GRAY)
     }
 
-    ///
-    /// aqua, orange, light, red, yellow, gray
-    /// with some dimmed for terminal readability.
-    #[rustfmt::skip] // ↑
+    #[rustfmt::skip]
     pub const fn gruvbox() -> Self {
-        const AQUA:       Rgb = (131, 165, 152);  // #83A598
-        const ORANGE:     Rgb = (254, 128, 25);   // #FE8019
-        const LIGHT:      Rgb = (235, 219, 178);  // #EBDBB2
-        const RED:        Rgb = (251, 73, 52);    // #FB4934
-        const YELLOW:     Rgb = (250, 189, 47);   // #FABD2F
-        const GRAY:       Rgb = (180, 180, 180);  // #B4B4B4
-
-        Self::new(AQUA, ORANGE, LIGHT, RED, YELLOW, AQUA, ORANGE, GRAY)
+        const AQUA:   Rgb = (131, 165, 152); // #83A598
+        const ORANGE: Rgb = (254, 128, 25);  // #FE8019
+        const LIGHT:  Rgb = (235, 219, 178); // #EBDBB2
+        const RED:    Rgb = (251, 73, 52);   // #FB4934
+        const YELLOW: Rgb = (250, 189, 47);  // #FABD2F
+        const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
+        Self::from_palette(AQUA, ORANGE, LIGHT, RED, YELLOW, AQUA, ORANGE, GRAY)
     }
 
-    ///
-    /// blue, purple, white, red, yellow, gray
-    /// with some dimmed for terminal readability.
-    #[rustfmt::skip] // ↑
+    #[rustfmt::skip]
     pub const fn one_dark() -> Self {
-        const BLUE:       Rgb = (97, 175, 239);   // #61AFEF
-        const PURPLE:     Rgb = (198, 120, 221);  // #C678DD
-        const WHITE:      Rgb = (171, 178, 191);  // #ABB2BF
-        const RED:        Rgb = (224, 108, 117);  // #E06C75
-        const YELLOW:     Rgb = (229, 192, 123);  // #E5C07B
-        const GRAY:       Rgb = (180, 180, 180);  // #B4B4B4
-
-        Self::new(BLUE, PURPLE, WHITE, RED, YELLOW, BLUE, PURPLE, GRAY)
+        const BLUE:   Rgb = (97, 175, 239);  // #61AFEF
+        const PURPLE: Rgb = (198, 120, 221); // #C678DD
+        const WHITE:  Rgb = (171, 178, 191); // #ABB2BF
+        const RED:    Rgb = (224, 108, 117); // #E06C75
+        const YELLOW: Rgb = (229, 192, 123); // #E5C07B
+        const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
+        Self::from_palette(BLUE, PURPLE, WHITE, RED, YELLOW, BLUE, PURPLE, GRAY)
     }
 
-    ///
-    /// blue, purple, white, red, yellow, gray
-    /// with some dimmed for terminal readability.
-    #[rustfmt::skip] // ↑
+    #[rustfmt::skip]
     pub const fn tokyo_night() -> Self {
-        const BLUE:       Rgb = (122, 162, 247);  // #7AA2F7
-        const PURPLE:     Rgb = (187, 154, 247);  // #BB9AF7
-        const WHITE:      Rgb = (192, 202, 245);  // #C0CAF5
-        const RED:        Rgb = (247, 118, 142);  // #F7768E
-        const YELLOW:     Rgb = (224, 175, 104);  // #E0AF68
-        const GRAY:       Rgb = (180, 180, 180);  // #B4B4B4
-
-        Self::new(BLUE, PURPLE, WHITE, RED, YELLOW, BLUE, PURPLE, GRAY)
+        const BLUE:   Rgb = (122, 162, 247); // #7AA2F7
+        const PURPLE: Rgb = (187, 154, 247); // #BB9AF7
+        const WHITE:  Rgb = (192, 202, 245); // #C0CAF5
+        const RED:    Rgb = (247, 118, 142); // #F7768E
+        const YELLOW: Rgb = (224, 175, 104); // #E0AF68
+        const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
+        Self::from_palette(BLUE, PURPLE, WHITE, RED, YELLOW, BLUE, PURPLE, GRAY)
     }
 }
 
@@ -418,7 +380,12 @@ pub enum Rotation {
     Compress,
 }
 
-#[derive(Clone, Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "lowercase")
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Level {
     Error,
@@ -427,11 +394,10 @@ pub enum Level {
     Debug,
     Trace,
     Off,
-    Custom(String),
 }
 
 impl Level {
-    pub const fn as_directive(&self) -> &str {
+    pub const fn as_directive(self) -> &'static str {
         match self {
             Self::Error => "error",
             Self::Warn => "warn",
@@ -439,50 +405,51 @@ impl Level {
             Self::Debug => "debug",
             Self::Trace => "trace",
             Self::Off => "off",
-            Self::Custom(s) => s.as_str(),
-        }
-    }
-
-    pub fn parse_str(s: &str) -> Self {
-        match s {
-            "error" => Self::Error,
-            "warn" => Self::Warn,
-            "info" => Self::Info,
-            "debug" => Self::Debug,
-            "trace" => Self::Trace,
-            "off" => Self::Off,
-            other => Self::Custom(other.to_owned()),
         }
     }
 }
 
+/// Tracing filter directive.
+///
+/// Built either from a `Level` (structured) or a raw `EnvFilter`-compatible
+/// directive string. Per-target overrides added via [`with_target`] are
+/// appended after the base; [`remove_target`] only removes entries that were
+/// added structurally — entries embedded in a raw base string cannot be
+/// removed without rebuilding the filter.
+///
+/// [`with_target`]: Filter::with_target
+/// [`remove_target`]: Filter::remove_target
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Filter {
-    level: Level,
-
+    base: compact_str::CompactString,
     targets: HashMap<compact_str::CompactString, Level>,
 }
 
 impl Filter {
-    pub fn new(level: impl Into<Level>) -> Self {
+    pub fn new(level: Level) -> Self {
         Self {
-            level: level.into(),
+            base: level.as_directive().into(),
             targets: HashMap::new(),
         }
     }
 
-    pub const fn level(&self) -> &Level {
-        &self.level
+    /// Build a `Filter` from a raw `EnvFilter`-style directive string,
+    /// e.g. `"info,my_crate=debug,my_crate::db=trace"`.
+    pub fn from_directive(directive: impl Into<compact_str::CompactString>) -> Self {
+        Self {
+            base: directive.into(),
+            targets: HashMap::new(),
+        }
     }
 
     pub fn with_target(
         &mut self,
         target: impl Into<compact_str::CompactString>,
-        level: impl Into<Level>,
+        level: Level,
     ) -> &mut Self {
-        self.targets.insert(target.into(), level.into());
+        self.targets.insert(target.into(), level);
         self
     }
 
@@ -491,7 +458,7 @@ impl Filter {
     }
 
     pub fn as_directive(&self) -> String {
-        let mut directive = String::from(self.level.as_directive());
+        let mut directive = String::from(self.base.as_str());
         for (target, level) in &self.targets {
             directive.push(',');
             directive.push_str(target);
@@ -502,24 +469,15 @@ impl Filter {
     }
 }
 
+impl Default for Filter {
+    fn default() -> Self {
+        Self::new(Level::Info)
+    }
+}
+
 impl From<Level> for Filter {
     fn from(level: Level) -> Self {
         Self::new(level)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for Level {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_directive())
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for Level {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(deserializer)?;
-        Ok(Self::parse_str(&s))
     }
 }
 
@@ -610,7 +568,8 @@ impl Default for Writer {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Config {
-    pub level: Level,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub filter: Filter,
     #[cfg_attr(feature = "serde", serde(default))]
     pub writers: Vec<Writer>,
 }
@@ -624,7 +583,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            level: Level::Info,
+            filter: Filter::default(),
             writers: vec![Writer::default()],
         }
     }
@@ -634,13 +593,20 @@ impl Default for Config {
 #[must_use]
 #[allow(clippy::module_name_repetitions)]
 pub struct ConfigBuilder {
-    level: Option<Level>,
+    filter: Option<Filter>,
     writers: Vec<Writer>,
 }
 
 impl ConfigBuilder {
-    pub fn level(mut self, level: impl Into<Level>) -> Self {
-        self.level = Some(level.into());
+    /// Convenience: set the filter to a single level.
+    pub fn level(mut self, level: Level) -> Self {
+        self.filter = Some(Filter::new(level));
+        self
+    }
+
+    /// Set the full filter (for raw directives or pre-built filters).
+    pub fn filter(mut self, filter: Filter) -> Self {
+        self.filter = Some(filter);
         self
     }
 
@@ -652,7 +618,7 @@ impl ConfigBuilder {
     pub fn build(self) -> Config {
         let defaults = Config::default();
         Config {
-            level: self.level.unwrap_or(defaults.level),
+            filter: self.filter.unwrap_or(defaults.filter),
             writers: if self.writers.is_empty() {
                 defaults.writers
             } else {
