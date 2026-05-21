@@ -35,5 +35,8 @@ dist/
 # omo
 .sisyphus/
 
+# cc
+.claude/
+
 # acta
 data/
