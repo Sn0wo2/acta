@@ -1,13 +1,12 @@
-use crate::color::style::{rgb_to_owo, rgb_to_owo_on, theme_fg_dimmed};
+use crate::color::Styled;
 use crate::config::ColorDepth;
 use crate::config::{Icons, LevelLabels, Style, Theme};
-use arrayvec::ArrayString;
 use chrono::Utc;
+use owo_colors::Rgb;
 use owo_colors::Style as OwoStyle;
 use smallvec::SmallVec;
 
 use std::fmt;
-use std::fmt::Write;
 use std::sync::Arc;
 
 use tracing::{Event, Level, Subscriber};
@@ -19,16 +18,7 @@ use tracing_subscriber::registry::LookupSpan;
 mod visitor;
 use visitor::EventVisitor;
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct LevelStyles {
-    bracket_fg: OwoStyle,
-    bracket_bg: OwoStyle,
-    label: OwoStyle,
-}
-
-const BUILD_PATH_WIDTH: usize = include!(concat!(env!("OUT_DIR"), "/path_width"));
-
-const PATH_BUF_SIZE: usize = 256;
+const DEFAULT_PATH_WIDTH: usize = include!(concat!(env!("OUT_DIR"), "/path_width"));
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -52,7 +42,7 @@ impl Formatter {
     pub fn new() -> Self {
         Self {
             time_format: String::from("%H:%M:%S"),
-            path_width: BUILD_PATH_WIDTH,
+            path_width: DEFAULT_PATH_WIDTH,
             show_path: true,
             show_spans: true,
             style: Arc::new(arc_swap::ArcSwap::new(Arc::new(Style::default()))),
@@ -68,7 +58,7 @@ impl Formatter {
     pub fn new_with_handle(style: Arc<arc_swap::ArcSwap<Style>>) -> Self {
         Self {
             time_format: String::from("%H:%M:%S"),
-            path_width: BUILD_PATH_WIDTH,
+            path_width: DEFAULT_PATH_WIDTH,
             show_path: true,
             show_spans: true,
             style,
@@ -80,14 +70,6 @@ impl Formatter {
     #[must_use]
     pub fn style_config(&self) -> Style {
         **self.style.load()
-    }
-
-    /// Returns a clone of the internal style handle for sharing with TracingGuard.
-    /// When TracingGuard modifies the handle (via `with_style`), all Formatters
-    /// sharing this handle will see the update on the next format_event call.
-    #[must_use]
-    pub fn style_handle(&self) -> Arc<arc_swap::ArcSwap<Style>> {
-        self.style.clone()
     }
 
     #[must_use]
@@ -150,57 +132,43 @@ impl Formatter {
         self
     }
 
-    pub(crate) fn format_path(&self, file: &str, line: u32) -> ArrayString<PATH_BUF_SIZE> {
-        let path_start = file.find("src/").or_else(|| file.find("src\\"));
-        let path = path_start.map_or(file, |i| file.get(i.saturating_add(4)..).unwrap_or(file));
-
-        let mut norm_path = ArrayString::<PATH_BUF_SIZE>::new();
-        for c in path.chars() {
-            if norm_path.len() < norm_path.capacity() {
-                let replaced = if c == '\\' { '/' } else { c };
-                norm_path.push(replaced);
-            }
-        }
-        let path_str = norm_path.as_str();
-
+    pub(crate) fn format_path(&self, file: &str, line: u32) -> String {
         let max_width = self.path_width;
-        let mut full = ArrayString::<PATH_BUF_SIZE>::new();
-        let _ = write!(full, "{path_str}:{line}");
 
+        let relative = file
+            .split("src/")
+            .nth(1)
+            .or_else(|| file.split("src\\").nth(1))
+            .unwrap_or(file);
+
+        let path_str = relative.replace('\\', "/");
+
+        let full = format!("{path_str}:{line}");
         if full.len() <= max_width {
-            let mut result = ArrayString::<PATH_BUF_SIZE>::new();
-            write!(result, "{full:>max_width$}").ok();
-            return result;
+            return format!("{full:>max_width$}");
         }
 
         if let Some(last_slash) = path_str.rfind('/') {
-            let tail = path_str
-                .get(last_slash.saturating_add(1)..)
-                .unwrap_or(path_str);
-            let mut file_part = ArrayString::<PATH_BUF_SIZE>::new();
-            let _ = write!(file_part, "{tail}:{line}");
+            let filename = &path_str[last_slash + 1..];
+            let file_with_line = format!("{filename}:{line}");
 
-            if file_part.len().saturating_add(2) <= max_width {
-                let dir_part = path_str.get(..last_slash).unwrap_or("");
-                let dir_start = dir_part
-                    .len()
-                    .saturating_sub(max_width.saturating_sub(file_part.len()).saturating_sub(1));
-                let dir_tail = dir_part.get(dir_start..).unwrap_or("");
-                let clean_dir = dir_tail.find('/').map_or(dir_tail, |i| {
-                    dir_tail.get(i.saturating_add(1)..).unwrap_or(dir_tail)
-                });
+            if file_with_line.len() + 2 <= max_width {
+                let clean_dir = &path_str[..last_slash]
+                    .chars()
+                    .rev()
+                    .take(max_width - file_with_line.len() - 1)
+                    .collect::<String>()
+                    .split('/')
+                    .next_back()
+                    .unwrap_or("")
+                    .to_string();
 
-                let mut result = ArrayString::<PATH_BUF_SIZE>::new();
-                let _ = write!(result, "{clean_dir}/{file_part}");
-                return result;
+                return format!("{clean_dir}/{file_with_line}");
             }
         }
 
-        let start = full.len().saturating_sub(max_width.saturating_sub(1));
-        let mut result = ArrayString::<PATH_BUF_SIZE>::new();
-        result.push('\u{2026}');
-        result.push_str(full.get(start..).unwrap_or(""));
-        result
+        let start = full.len().saturating_sub(max_width - 1);
+        format!("\u{2026}{}", &full[start..])
     }
 
     fn write_time(&self, writer: &mut Writer<'_>, theme: &Theme) -> fmt::Result {
@@ -208,7 +176,11 @@ impl Formatter {
         write!(
             writer,
             "{}",
-            rgb_to_owo(theme.text, self.color_depth).style(now.format(&self.time_format))
+            OwoStyle::from(Styled::new(
+                Rgb(theme.text.0, theme.text.1, theme.text.2),
+                self.color_depth
+            ))
+            .style(now.format(&self.time_format))
         )
     }
 
@@ -222,7 +194,14 @@ impl Formatter {
         write!(
             writer,
             "{}",
-            theme_fg_dimmed(theme.text, self.color_depth).style(self.format_path(
+            OwoStyle::from(
+                Styled::new(
+                    Rgb(theme.text.0, theme.text.1, theme.text.2),
+                    self.color_depth
+                )
+                .dimmed()
+            )
+            .style(self.format_path(
                 event.metadata().file().unwrap_or("?"),
                 event.metadata().line().unwrap_or(0),
             ))
@@ -230,7 +209,11 @@ impl Formatter {
         write!(
             writer,
             " {} ",
-            rgb_to_owo(theme.accent, self.color_depth).style(icons.arrow)
+            OwoStyle::from(Styled::new(
+                Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
+                self.color_depth
+            ))
+            .style(icons.arrow)
         )?;
         Ok(())
     }
@@ -248,7 +231,11 @@ impl Formatter {
             write!(
                 writer,
                 "{}",
-                rgb_to_owo(theme.text, self.color_depth).style(msg)
+                OwoStyle::from(Styled::new(
+                    Rgb(theme.text.0, theme.text.1, theme.text.2),
+                    self.color_depth
+                ))
+                .style(msg)
             )?;
             " "
         } else {
@@ -260,9 +247,21 @@ impl Formatter {
                 writer,
                 "{}{}{}{}",
                 sep,
-                rgb_to_owo(theme.secondary, self.color_depth).style(k),
-                rgb_to_owo(theme.accent, self.color_depth).style("="),
-                rgb_to_owo(theme.text, self.color_depth).style(v)
+                OwoStyle::from(Styled::new(
+                    Rgb(theme.secondary.0, theme.secondary.1, theme.secondary.2),
+                    self.color_depth
+                ))
+                .style(k),
+                OwoStyle::from(Styled::new(
+                    Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
+                    self.color_depth
+                ))
+                .style("="),
+                OwoStyle::from(Styled::new(
+                    Rgb(theme.text.0, theme.text.1, theme.text.2),
+                    self.color_depth
+                ))
+                .style(v)
             )?;
             sep = " ";
         }
@@ -294,10 +293,28 @@ impl Formatter {
         }
 
         let total = spans.len();
-        let accent = rgb_to_owo(theme.accent, self.color_depth);
-        let accent_dimmed = theme_fg_dimmed(theme.accent, self.color_depth);
-        let text = rgb_to_owo(theme.text, self.color_depth);
-        let text_dimmed = theme_fg_dimmed(theme.text, self.color_depth);
+        let accent = OwoStyle::from(Styled::new(
+            Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
+            self.color_depth,
+        ));
+        let accent_dimmed = OwoStyle::from(
+            Styled::new(
+                Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
+                self.color_depth,
+            )
+            .dimmed(),
+        );
+        let text = OwoStyle::from(Styled::new(
+            Rgb(theme.text.0, theme.text.1, theme.text.2),
+            self.color_depth,
+        ));
+        let text_dimmed = OwoStyle::from(
+            Styled::new(
+                Rgb(theme.text.0, theme.text.1, theme.text.2),
+                self.color_depth,
+            )
+            .dimmed(),
+        );
 
         write!(writer, " {}", accent.style("["))?;
 
@@ -346,44 +363,67 @@ where
             Level::TRACE => (config.theme.trace, config.labels.trace),
         };
 
-        let ls = {
-            let r = color.0;
-            let g = color.1;
-            let b = color.2;
-            let depth = self.color_depth;
-            LevelStyles {
-                bracket_fg: rgb_to_owo((r, g, b), depth),
-                bracket_bg: rgb_to_owo_on(r, g, b, depth),
-                label: rgb_to_owo_on(r, g, b, depth),
-            }
-        };
+        let level_rgb = Rgb(color.0, color.1, color.2);
+        let fg_only = OwoStyle::from(Styled::new(level_rgb, self.color_depth));
+        let on_bg = OwoStyle::from(Styled::new(level_rgb, self.color_depth).on());
 
-        let fg_style = match config.icons.name {
-            "nerd" => ls.bracket_fg,
-            _ => ls.bracket_bg,
+        let bracket_style = if config.icons.name == "nerd" {
+            fg_only
+        } else {
+            on_bg
         };
 
         write!(
             writer,
             "{}",
-            rgb_to_owo(config.theme.accent, self.color_depth).style(config.icons.time_bracket_open)
+            OwoStyle::from(Styled::new(
+                Rgb(
+                    config.theme.accent.0,
+                    config.theme.accent.1,
+                    config.theme.accent.2
+                ),
+                self.color_depth
+            ))
+            .style(config.icons.time_bracket_open)
         )?;
         self.write_time(&mut writer, &config.theme)?;
         write!(
             writer,
             " {} ",
-            theme_fg_dimmed(config.theme.accent, self.color_depth).style(config.icons.separator)
+            OwoStyle::from(
+                Styled::new(
+                    Rgb(
+                        config.theme.accent.0,
+                        config.theme.accent.1,
+                        config.theme.accent.2
+                    ),
+                    self.color_depth
+                )
+                .dimmed()
+            )
+            .style(config.icons.separator)
         )?;
 
-        write!(writer, "{}", fg_style.style(config.icons.bracket_open))?;
-        write!(writer, "{}", ls.label.style(level_label))?;
-        write!(writer, "{} ", fg_style.style(config.icons.bracket_close))?;
+        write!(writer, "{}", bracket_style.style(config.icons.bracket_open))?;
+        write!(writer, "{}", on_bg.style(level_label))?;
+        write!(
+            writer,
+            "{} ",
+            bracket_style.style(config.icons.bracket_close)
+        )?;
 
         write!(
             writer,
             "{} ",
-            rgb_to_owo(config.theme.accent, self.color_depth)
-                .style(config.icons.time_bracket_close)
+            OwoStyle::from(Styled::new(
+                Rgb(
+                    config.theme.accent.0,
+                    config.theme.accent.1,
+                    config.theme.accent.2
+                ),
+                self.color_depth
+            ))
+            .style(config.icons.time_bracket_close)
         )?;
 
         if self.show_path {

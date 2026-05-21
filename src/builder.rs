@@ -6,53 +6,47 @@ use std::io;
 #[cfg(feature = "file")]
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing_subscriber::Registry;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::Layered;
 use tracing_subscriber::prelude::*;
-
-pub type FmtLayer<S = tracing_subscriber::Registry> =
-    Box<dyn tracing_subscriber::Layer<S> + Send + Sync>;
-
-// tracing_subscriber::reload::Handle<EnvFilter, S> needs the concrete S.
-// Six optional layers stacked → this pyramid.  Users never name it.
-type Layer1 = tracing_subscriber::layer::Layered<
-    Option<FmtLayer<tracing_subscriber::Registry>>,
-    tracing_subscriber::Registry,
->;
-type Layer2 = tracing_subscriber::layer::Layered<Option<FmtLayer<Layer1>>, Layer1>;
-type Layer3 = tracing_subscriber::layer::Layered<Option<FmtLayer<Layer2>>, Layer2>;
-type Layer4 = tracing_subscriber::layer::Layered<Option<FmtLayer<Layer3>>, Layer3>;
-pub(crate) type InnerSubscriber =
-    tracing_subscriber::layer::Layered<Option<FmtLayer<Layer4>>, Layer4>;
-
-pub(crate) struct ReloadHandle(
-    pub(crate) tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, InnerSubscriber>,
-);
-
-impl ReloadHandle {
-    fn new(
-        filter: tracing_subscriber::EnvFilter,
-    ) -> (
-        tracing_subscriber::reload::Layer<tracing_subscriber::EnvFilter, InnerSubscriber>,
-        Self,
-    ) {
-        let (layer, handle) = tracing_subscriber::reload::Layer::new(filter);
-        (layer, Self(handle))
-    }
-
-    fn modify(&self, f: impl FnOnce(&mut tracing_subscriber::EnvFilter)) -> crate::Result<()> {
-        self.0.modify(f)?;
-        Ok(())
-    }
-}
-
-impl From<Style> for Arc<arc_swap::ArcSwap<Style>> {
-    fn from(s: Style) -> Self {
-        Self::new(arc_swap::ArcSwap::new(Arc::new(s)))
-    }
-}
 
 #[cfg(any(feature = "file", feature = "custom-async", feature = "native-async"))]
 use crate::writer;
+
+pub(crate) type BoxedLayer = Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>;
+pub(crate) type InnerSubscriber = Layered<Vec<BoxedLayer>, Registry>;
+pub(crate) type ReloadHandle =
+    tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, InnerSubscriber>;
+
+#[allow(clippy::single_call_fn)]
+fn detect_color_depth(target: &WriterTarget) -> ColorDepth {
+    use supports_color::Stream;
+    let stream = match *target {
+        WriterTarget::Stdout => Stream::Stdout,
+        WriterTarget::Stderr => Stream::Stderr,
+        #[cfg(feature = "file")]
+        WriterTarget::File { .. } => return ColorDepth::NoColor,
+        #[cfg(any(feature = "custom-async", feature = "native-async"))]
+        WriterTarget::AsyncStdout(_) => Stream::Stdout,
+        #[cfg(any(feature = "custom-async", feature = "native-async"))]
+        WriterTarget::AsyncStderr(_) => Stream::Stderr,
+    };
+
+    if let Some(level) = supports_color::on_cached(stream) {
+        if level.has_16m {
+            return ColorDepth::TrueColor;
+        }
+        if level.has_256 {
+            return ColorDepth::Ansi256;
+        }
+        if level.has_basic {
+            return ColorDepth::Ansi16;
+        }
+    }
+
+    ColorDepth::NoColor
+}
 
 fn build_formatter(
     writer: &Writer,
@@ -75,24 +69,22 @@ fn build_formatter(
     f
 }
 
-fn build_layer_inner<S>(
+pub fn build_layer(writer: &Writer) -> BoxedLayer {
+    build_layer_with(writer, None)
+}
+
+fn build_layer_with(
     writer: &Writer,
     shared_handle: Option<Arc<arc_swap::ArcSwap<Style>>>,
-) -> FmtLayer<S>
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-{
-    let formatter = build_formatter(
-        writer,
-        writer.color_depth.unwrap_or_else(|| {
-            if writer.ansi {
-                crate::config::depth::detect(&writer.target)
-            } else {
-                ColorDepth::NoColor
-            }
-        }),
-        shared_handle,
-    );
+) -> BoxedLayer {
+    let color_depth = writer.color_depth.unwrap_or_else(|| {
+        if writer.ansi {
+            detect_color_depth(&writer.target)
+        } else {
+            ColorDepth::NoColor
+        }
+    });
+    let formatter = build_formatter(writer, color_depth, shared_handle);
 
     let base = || {
         tracing_subscriber::fmt::Layer::default()
@@ -163,20 +155,9 @@ where
     }
 }
 
-pub fn build_layer<S>(writer: &Writer) -> FmtLayer<S>
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-{
-    build_layer_inner(writer, None)
-}
-
 #[cfg(feature = "file")]
 #[allow(clippy::single_call_fn)]
-fn build_file_fmt_layer<S>(writer: &Writer, file_writer: writer::FileWriter) -> FmtLayer<S>
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-{
-    let formatter = build_formatter(writer, ColorDepth::NoColor, None);
+fn build_file_layer(writer: &Writer, file_writer: writer::FileWriter) -> BoxedLayer {
     let base = || {
         tracing_subscriber::fmt::Layer::default()
             .with_thread_ids(false)
@@ -198,7 +179,7 @@ where
             .with_file(cfg.file)
             .with_line_number(cfg.line_number)
             .with_ansi(false)
-            .event_format(formatter)
+            .event_format(build_formatter(writer, ColorDepth::NoColor, None))
             .with_writer(file_writer)
             .boxed(),
         Format::Json(cfg) => base()
@@ -215,103 +196,18 @@ where
     }
 }
 
-/// Build a reload layer + TracingGuard.
-///
-/// `style_handle` can be:
-/// - A `Style` (creates an independent handle — `with_style()` works on the
-///   guard but won't affect `Formatter`s that already exist).
-/// - An `Arc<ArcSwap<Style>>` from `Formatter::style_handle()` — the guard
-///   and formatter share the same style state so `with_style()` updates the
-///   formatter at runtime.
-pub fn build_reload_filter(
-    level: crate::config::Level,
-    style_handle: impl Into<Arc<arc_swap::ArcSwap<Style>>>,
-) -> (
-    tracing_subscriber::reload::Layer<tracing_subscriber::EnvFilter, InnerSubscriber>,
-    TracingGuard,
-) {
-    let filter = Filter::new(level);
-    let env_filter =
-        tracing_subscriber::EnvFilter::try_new(filter.as_directive()).unwrap_or_default();
-    let (layer, raw) = ReloadHandle::new(env_filter);
-    let guard = TracingGuard {
-        raw,
-        filter,
-        style: style_handle.into(),
-        #[cfg(feature = "file")]
-        worker_guard: None,
-        #[cfg(feature = "file")]
-        log_path: None,
-    };
-    (layer, guard)
-}
+pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
+    let Config { filter, writers } = config.into();
+    let shared_style = Arc::new(arc_swap::ArcSwap::new(Arc::new(
+        writers.first().map_or_else(Style::default, |w| w.style),
+    )));
 
-#[non_exhaustive]
-pub struct SubscriberParts {
-    pub(crate) raw: ReloadHandle,
-    pub(crate) filter: Filter,
-    pub(crate) style: Arc<arc_swap::ArcSwap<Style>>,
-    #[cfg(feature = "file")]
-    pub(crate) file_guard: Option<writer::LogHandle>,
-    #[cfg(feature = "file")]
-    pub(crate) log_path: Option<PathBuf>,
-}
-
-impl std::fmt::Debug for SubscriberParts {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SubscriberParts").finish_non_exhaustive()
-    }
-}
-
-impl SubscriberParts {
-    pub fn into_guard(self) -> TracingGuard {
-        TracingGuard {
-            raw: self.raw,
-            filter: self.filter,
-            style: self.style,
-            #[cfg(feature = "file")]
-            worker_guard: self.file_guard,
-            #[cfg(feature = "file")]
-            log_path: self.log_path,
-        }
-    }
-    #[cfg(feature = "file")]
-    pub fn file_guard(self) -> Option<writer::LogHandle> {
-        self.file_guard
-    }
-    #[cfg(feature = "file")]
-    pub fn log_path(self) -> Option<PathBuf> {
-        self.log_path
-    }
-}
-
-#[allow(clippy::type_complexity)]
-pub fn build_subscriber(config: Config) -> crate::Result<SubscriberParts> {
-    let Config { level, writers } = config;
-    let initial_style = writers.first().map_or_else(Style::default, |w| w.style);
-    let shared_style = Arc::new(arc_swap::ArcSwap::new(Arc::new(initial_style)));
-
-    let mut stdout_layer = None;
-    let mut stderr_layer = None;
-    #[cfg(any(feature = "custom-async", feature = "native-async"))]
-    let mut async_stdout_layer = None;
-    #[cfg(not(any(feature = "custom-async", feature = "native-async")))]
-    let async_stdout_layer = None;
-    #[cfg(any(feature = "custom-async", feature = "native-async"))]
-    let mut async_stderr_layer = None;
-    #[cfg(not(any(feature = "custom-async", feature = "native-async")))]
-    let async_stderr_layer = None;
-    #[cfg(feature = "file")]
-    let mut file_layer = None;
-    #[cfg(not(feature = "file"))]
-    let file_layer = None;
-
+    let mut layers: Vec<BoxedLayer> = Vec::with_capacity(writers.len());
+    let mut shared_style_used = false;
     #[cfg(feature = "file")]
     let mut file_guard = None;
     #[cfg(feature = "file")]
     let mut log_path = None;
-
-    let mut shared_style_used = false;
 
     for writer in writers {
         #[cfg(feature = "file")]
@@ -324,61 +220,38 @@ pub fn build_subscriber(config: Config) -> crate::Result<SubscriberParts> {
             shared_style.clone()
         });
 
-        match writer.target {
-            WriterTarget::Stdout => stdout_layer = Some(build_layer_inner(&writer, handle)),
-            WriterTarget::Stderr => stderr_layer = Some(build_layer_inner(&writer, handle)),
-            #[cfg(feature = "file")]
-            WriterTarget::File { ref path, rotation } => {
-                let (file_w, guard, resolved_path) =
-                    writer::file::build_file_layer(path, rotation)?;
-                file_guard = Some(guard);
-                log_path = Some(resolved_path);
-                file_layer = Some(build_file_fmt_layer(&writer, file_w));
-            }
-            #[cfg(any(feature = "custom-async", feature = "native-async"))]
-            WriterTarget::AsyncStdout(_) => {
-                async_stdout_layer = Some(build_layer_inner(&writer, handle))
-            }
-            #[cfg(any(feature = "custom-async", feature = "native-async"))]
-            WriterTarget::AsyncStderr(_) => {
-                async_stderr_layer = Some(build_layer_inner(&writer, handle))
-            }
+        #[cfg(feature = "file")]
+        if let WriterTarget::File { ref path, rotation } = writer.target {
+            let (file_w, guard, resolved_path) = writer::file::build_file_layer(path, rotation)?;
+            file_guard = Some(guard);
+            log_path = Some(resolved_path);
+            layers.push(build_file_layer(&writer, file_w));
+            continue;
         }
+
+        layers.push(build_layer_with(&writer, handle));
     }
 
-    let filter = Filter::new(level);
-    let env_filter =
-        tracing_subscriber::EnvFilter::try_new(filter.as_directive()).unwrap_or_default();
-    let (env_filter_layer, raw) = ReloadHandle::new(env_filter);
+    let env_filter = tracing_subscriber::EnvFilter::try_new(filter.as_directive())?;
+    let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(env_filter);
 
-    let subscriber = tracing_subscriber::Registry::default()
-        .with(stdout_layer)
-        .with(stderr_layer)
-        .with(async_stdout_layer)
-        .with(async_stderr_layer)
-        .with(file_layer)
-        .with(env_filter_layer);
+    let subscriber = Registry::default().with(layers).with(env_filter_layer);
 
     let _ = tracing_log::LogTracer::init();
     tracing::subscriber::set_global_default(subscriber)?;
-    Ok(SubscriberParts {
+
+    Ok(TracingGuard {
         raw,
         filter,
         style: shared_style,
         #[cfg(feature = "file")]
-        file_guard,
+        worker_guard: file_guard,
         #[cfg(feature = "file")]
         log_path,
     })
 }
 
-pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
-    build_subscriber(config.into()).map(SubscriberParts::into_guard)
-}
-
 #[must_use = "dropping TracingGuard will release associated resources"]
-#[allow(clippy::module_name_repetitions)]
-#[non_exhaustive]
 pub struct TracingGuard {
     pub(crate) raw: ReloadHandle,
     pub(crate) filter: Filter,
@@ -392,11 +265,11 @@ pub struct TracingGuard {
 impl std::fmt::Debug for TracingGuard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut d = f.debug_struct("TracingGuard");
-        d.field("filter", &self.filter);
+        let _ = d.field("filter", &self.filter);
         #[cfg(feature = "file")]
-        d.field("log_path", &self.log_path);
+        let _ = d.field("log_path", &self.log_path);
         #[cfg(feature = "file")]
-        d.field("has_file_guard", &self.worker_guard.is_some());
+        let _ = d.field("has_file_guard", &self.worker_guard.is_some());
         d.finish_non_exhaustive()
     }
 }
@@ -408,20 +281,14 @@ impl TracingGuard {
         self.style.store(Arc::new(style));
     }
 
-    pub fn reload(&mut self, directive: &str) -> crate::Result<()> {
-        self.apply_directive(directive)?;
-        self.filter = Filter::new(crate::config::Level::Custom(directive.to_owned()));
-        Ok(())
-    }
-
     pub fn set_filter(&mut self, filter: Filter) -> crate::Result<()> {
-        let directive = filter.as_directive();
-        self.apply_directive(&directive)?;
+        let env_filter = tracing_subscriber::EnvFilter::try_new(filter.as_directive())?;
+        self.raw.modify(|f| *f = env_filter)?;
         self.filter = filter;
         Ok(())
     }
 
-    pub fn set_level(&mut self, level: impl Into<crate::config::Level>) -> crate::Result<()> {
+    pub fn set_level(&mut self, level: crate::config::Level) -> crate::Result<()> {
         self.filter = Filter::new(level);
         self.apply_current_filter()
     }
@@ -429,7 +296,7 @@ impl TracingGuard {
     pub fn set_target_level(
         &mut self,
         target: impl Into<compact_str::CompactString>,
-        level: impl Into<crate::config::Level>,
+        level: crate::config::Level,
     ) -> crate::Result<()> {
         self.filter.with_target(target, level);
         self.apply_current_filter()
@@ -442,21 +309,12 @@ impl TracingGuard {
 
     fn apply_current_filter(&self) -> crate::Result<()> {
         let env_filter = tracing_subscriber::EnvFilter::try_new(self.filter.as_directive())?;
-        self.raw.modify(|f| *f = env_filter)
-    }
-
-    fn apply_directive(&self, directive: &str) -> crate::Result<()> {
-        let filter = tracing_subscriber::EnvFilter::try_new(directive)?;
-        self.raw.modify(|f| *f = filter)
+        self.raw.modify(|f| *f = env_filter)?;
+        Ok(())
     }
 
     #[cfg(feature = "file")]
     pub fn log_path(&self) -> Option<&std::path::Path> {
         self.log_path.as_deref()
-    }
-
-    pub fn shutdown(&self) -> crate::Result<()> {
-        let filter = tracing_subscriber::EnvFilter::try_new("off")?;
-        self.raw.modify(|f| *f = filter)
     }
 }

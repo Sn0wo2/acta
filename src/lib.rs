@@ -11,25 +11,25 @@ pub mod prelude;
 #[cfg(any(feature = "file", feature = "custom-async", feature = "native-async"))]
 pub mod writer;
 
-pub use builder::TracingGuard;
-pub use config::{ColorDepth, Icons, LevelLabels, Style, Theme};
+pub use builder::{TracingGuard, build_layer, init};
+pub use config::{
+    ColorDepth, Config, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style,
+    Theme, Writer, WriterTarget,
+};
 pub use fmt::Formatter;
 
-pub use color::rgb_to_ansi16;
 pub use tracing::{
     debug, debug_span, error, error_span, info, info_span, trace, trace_span, warn, warn_span,
 };
 
 #[cfg(feature = "custom-async")]
-pub use writer::{AsyncWriter, async_writer, async_writer_for};
+pub use writer::{AsyncWriter, async_writer_for};
 
 #[cfg(any(feature = "custom-async", feature = "native-async"))]
 pub use config::AsyncMode;
 
 #[cfg(any(feature = "custom-async", feature = "native-async"))]
 pub use writer::AsyncWriterTarget;
-
-pub use config::{Config, Filter, Format, LayerConfig, Level, Rotation, Writer, WriterTarget};
 
 #[cfg(feature = "file")]
 pub use crate::writer::{LogHandle, resolve_log_path, rotate_log_file};
@@ -50,10 +50,6 @@ pub enum ActaError {
 }
 
 pub type Result<T> = std::result::Result<T, ActaError>;
-
-pub use crate::builder::{SubscriberParts, build_layer, build_reload_filter, build_subscriber};
-
-pub use crate::builder::init;
 
 #[cfg(test)]
 mod test;

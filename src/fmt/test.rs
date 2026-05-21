@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 fn formatter_defaults() {
     let fmt = Formatter::new();
     assert_eq!(fmt.time_format, "%H:%M:%S");
-    assert_eq!(fmt.path_width, BUILD_PATH_WIDTH);
+    assert_eq!(fmt.path_width, DEFAULT_PATH_WIDTH);
     assert!(fmt.show_path);
     assert!(fmt.show_spans);
 }
