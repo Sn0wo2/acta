@@ -4,8 +4,26 @@ use owo_colors::AnsiColors;
 use owo_colors::Rgb;
 use owo_colors::Style as OwoStyle;
 use owo_colors::XtermColors;
-
 use crate::ColorDepth;
+
+const ANSI16_TABLE: [AnsiColors; 16] = [
+    AnsiColors::Black,
+    AnsiColors::Red,
+    AnsiColors::Green,
+    AnsiColors::Yellow,
+    AnsiColors::Blue,
+    AnsiColors::Magenta,
+    AnsiColors::Cyan,
+    AnsiColors::White,
+    AnsiColors::BrightBlack,
+    AnsiColors::BrightRed,
+    AnsiColors::BrightGreen,
+    AnsiColors::BrightYellow,
+    AnsiColors::BrightBlue,
+    AnsiColors::BrightMagenta,
+    AnsiColors::BrightCyan,
+    AnsiColors::BrightWhite,
+];
 
 #[derive(Clone, Copy, Debug)]
 pub struct Styled {
@@ -56,26 +74,8 @@ impl From<Styled> for OwoStyle {
                 style.color(ansi)
             }
             ColorDepth::Ansi16 => {
-                let ansi = *[
-                    AnsiColors::Black,
-                    AnsiColors::Red,
-                    AnsiColors::Green,
-                    AnsiColors::Yellow,
-                    AnsiColors::Blue,
-                    AnsiColors::Magenta,
-                    AnsiColors::Cyan,
-                    AnsiColors::White,
-                    AnsiColors::BrightBlack,
-                    AnsiColors::BrightRed,
-                    AnsiColors::BrightGreen,
-                    AnsiColors::BrightYellow,
-                    AnsiColors::BrightBlue,
-                    AnsiColors::BrightMagenta,
-                    AnsiColors::BrightCyan,
-                    AnsiColors::BrightWhite,
-                ]
-                .get(rgb_to_ansi(s.as_tuple().into(), Palette::default()) as usize)
-                .unwrap_or(&AnsiColors::White);
+                let idx = rgb_to_ansi(s.as_tuple().into(), Palette::default()) as usize;
+                let ansi = ANSI16_TABLE.get(idx).copied().unwrap_or(AnsiColors::White);
                 if s.on {
                     return style.on_color(ansi);
                 }
