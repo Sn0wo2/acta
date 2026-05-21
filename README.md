@@ -60,7 +60,7 @@ Keep the returned guard alive for as long as logging is needed. Dropping it stop
 | Feature        | Enabled by default | Description                                                                                              |
 | -------------- | ------------------ | -------------------------------------------------------------------------------------------------------- |
 | `unicode`      | Yes                | Uses the Unicode icon set unless `nerd` selects Nerd Font icons.                                         |
-| `file`         | Yes                | Enables `init`, `TracingGuard`, `build_file_layer`, and file logging through `tracing-appender`. |
+| `file`         | Yes                | Enables `init`, `TracingGuard`, and file logging through `tracing-appender`. |
 | `compress`     | No                 | Enables `Rotation::Compress` for gzip-compressing old log files.                                         |
 | `serde`        | No                 | Adds `Serialize` / `Deserialize` support for config types.                                               |
 | `nerd`         | No                 | Enables Nerd Font icons through `Icons::NERD` and uses them by default.                         |
@@ -82,14 +82,14 @@ If you disable default features, `init` is unavailable unless the `file` feature
 
 ```rust
 use acta::{
-    init, Format, Level, Config, Result, Writer,
+    init, Format, LayerConfig, Level, Config, Result, Writer,
 };
 
 fn main() -> Result<()> {
     let config = Config {
-        level: Level::Debug,
+        filter: Level::Debug.into(),
         writers: vec![Writer {
-            format: Format::Compact,
+            format: Format::Compact(LayerConfig::compact()),
             ansi: true,
             show_path: true,
             show_spans: true,
@@ -109,9 +109,9 @@ fn main() -> Result<()> {
 
 | Format            | Description                                                        |
 | ----------------- | ------------------------------------------------------------------ |
-| `Format::Compact` | Default themed formatter with optional path and span display.      |
-| `Format::Pretty`  | `tracing-subscriber` pretty formatter with file and line metadata. |
-| `Format::Json`    | Flattened JSON events without ANSI colors.                         |
+| `Format::Compact(LayerConfig)` | Default themed formatter with optional path and span display.      |
+| `Format::Pretty(LayerConfig)`  | `tracing-subscriber` pretty formatter with file and line metadata. |
+| `Format::Json(LayerConfig)`    | Flattened JSON events without ANSI colors.                         |
 ## File logging
 
 File logging is available with the `file` feature, which is enabled by default. File logs are written as flattened JSON
@@ -119,15 +119,15 @@ events.
 
 ```rust
 use acta::{
-    init, Level, Config, Result, Rotation, Writer, WriterTarget,
+    init, Format, LayerConfig, Level, Config, Result, Rotation, Writer, WriterTarget,
 };
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
     let config = Config {
-        level: Level::Info,
+        filter: Level::Info.into(),
         writers: vec![Writer {
-            format: Format::Compact,
+            format: Format::Compact(LayerConfig::compact()),
             target: WriterTarget::File {
                 path: PathBuf::from("logs/app.log"),
                 rotation: Rotation::Rename,
@@ -156,10 +156,10 @@ Supported rotation modes:
 acta uses `tracing-subscriber` `EnvFilter` directive syntax for startup filters and runtime reloads.
 
 ```rust
-use acta::{Level, Config};
+use acta::{Config, Filter};
 
 let config = Config {
-    level: Level::Custom("info,my_crate=debug,my_crate::db=trace".to_owned()),
+    filter: Filter::from_directive("info,my_crate=debug,my_crate::db=trace"),
     ..Default::default()
 };
 ```
@@ -175,23 +175,22 @@ fn main() -> Result<()> {
     guard.set_level(Level::Debug)?;
     guard.set_target_level("my_crate", Level::Trace)?;
     guard.remove_target_level("my_crate")?;
-    guard.reload("info,my_crate=trace")?;
     guard.set_filter(
-        Filter::new(Level::Warn).with_target("my_crate", Level::Debug),
+        Filter::from_directive("warn,my_crate=debug"),
     )?;
 
     Ok(())
 }
 ```
 
-`RUST_LOG` is not read automatically. If you want to use it, pass its value into `Level::Custom`.
+`RUST_LOG` is not read automatically. If you want to use it, pass its value into `Filter::from_directive`.
 
 ```rust
-use acta::{Level, Config};
+use acta::{Config, Filter};
 
 let directive = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
 let config = Config {
-    level: Level::Custom(directive),
+    filter: Filter::from_directive(directive),
     ..Default::default()
 };
 ```
@@ -206,13 +205,35 @@ use acta::{Formatter, Icons, LevelLabels, Theme};
 let formatter = Formatter::new()
     .with_theme(Theme::tokyo_night())
     .with_icons(Icons::UNICODE)
-    .with_labels(LevelLabels::long())
+    .with_labels(LevelLabels::DEFAULT)
     .with_time_format("%H:%M:%S")
     .with_show_path(true)
     .with_show_spans(true);
 ```
 
-The default path width is generated at build time.
+The default path width is computed at acta's build time from its own source
+tree — fine for a quick start, but if you want the column to fit **your**
+project's source paths, add the `acta-build` helper to your build script:
+
+```toml
+[build-dependencies]
+acta-build = "0.1"
+```
+
+```rust
+// build.rs
+fn main() {
+    let width = acta_build::walk_src_max_width("src", "src/");
+    println!("cargo:rustc-env=ACTA_PATH_WIDTH={width}");
+    println!("cargo:rerun-if-changed=src");
+}
+```
+
+```rust
+// in your code
+let width: usize = env!("ACTA_PATH_WIDTH").parse().unwrap_or(40);
+let formatter = Formatter::new().with_path_width(width);
+```
 
 ## Themes
 
@@ -232,16 +253,16 @@ Create custom themes from RGB values:
 ```rust
 use acta::Theme;
 
-let custom = Theme::new(
-    (91, 206, 250),   // accent
-    (245, 169, 184),  // secondary
-    (255, 255, 255),  // text
-    (255, 85, 85),    // error
-    (255, 200, 60),   // warn
-    (91, 206, 250),   // info
-    (245, 169, 184),  // debug
-    (240, 240, 240),  // trace
-);
+let custom = Theme {
+    accent:    (91, 206, 250),
+    secondary: (245, 169, 184),
+    text:      (255, 255, 255),
+    error:     (255, 85, 85),
+    warn:      (255, 200, 60),
+    info:      (91, 206, 250),
+    debug:     (245, 169, 184),
+    trace:     (240, 240, 240),
+};
 ```
 
 ## Icons and labels
@@ -250,8 +271,8 @@ let custom = Theme::new(
 use acta::{Icons, LevelLabels};
 
 let unicode_icons = Icons::UNICODE;
-let short_labels = LevelLabels::short();
-let long_labels = LevelLabels::long();
+let short_labels = LevelLabels::SHORT;
+let long_labels = LevelLabels::DEFAULT;
 ```
 
 With the `nerd` feature enabled:
@@ -287,35 +308,6 @@ fn main() -> Result<()> {
     Ok(())
 }
 ```
-If you build the subscriber manually, `build_reload_filter` returns a `TracingGuard` that also supports style reloading:
-
-```rust
-use acta::{
-    build_reload_filter, Formatter, Level, Result,
-    Theme, Style, Writer,
-};
-use tracing_subscriber::prelude::*;
-
-fn main() -> Result<()> {
-    let formatter = Formatter::new().with_theme(Theme::monokai());
-    let style = *formatter.style_config();
-    let console_layer = tracing_subscriber::fmt::Layer::default()
-        .with_writer(std::io::stdout)
-        .event_format(formatter)
-        .boxed();
-    let (filter_layer, mut guard) = build_reload_filter(Level::Info, style);
-
-    let subscriber = tracing_subscriber::registry()
-        .with(console_layer)
-        .with(filter_layer);
-    tracing::subscriber::set_global_default(subscriber)?;
-
-    guard.with_style(|s| s.theme = Theme::dracula());
-
-    Ok(())
-}
-```
-This low-level setup requires adding `tracing-subscriber` as a direct dependency.
 
 ## Async console writers
 

@@ -1,62 +1,45 @@
+#![allow(clippy::unwrap_used)]
+
 use std::io;
+use std::sync::Arc;
 
 use super::*;
+use crate::builder::{BoxedLayer, ReloadHandle, build_layer};
 use crate::config::LayerConfig;
+use tracing_subscriber::Registry;
 use tracing_subscriber::layer::Layered;
 use tracing_subscriber::prelude::*;
 
-pub(crate) type SubscriberWithBoth = Layered<
+type TestSubscriber = Layered<
     tracing_subscriber::reload::Layer<tracing_subscriber::EnvFilter, builder::InnerSubscriber>,
     builder::InnerSubscriber,
 >;
 
-pub(crate) fn build_reload_filter(
-    level: Level,
-    style: Style,
-) -> (
-    tracing_subscriber::reload::Layer<builder::FmtLayer, tracing_subscriber::Registry>,
-    TracingGuard,
-    SubscriberWithBoth,
-) {
-    let stdout_layer = Some(
-        tracing_subscriber::fmt::Layer::default()
-            .with_writer(io::sink)
-            .boxed(),
-    );
-    let stderr_layer = None;
-    let async_stdout_layer = None;
-    let async_stderr_layer = None;
-    let file_layer = None;
-
-    let inner_subscriber = tracing_subscriber::Registry::default()
-        .with(stdout_layer)
-        .with(stderr_layer)
-        .with(async_stdout_layer)
-        .with(async_stderr_layer)
-        .with(file_layer);
-
+fn build_test_guard(level: Level, style: Style) -> (TracingGuard, TestSubscriber) {
     let filter = Filter::new(level);
     let env_filter =
         tracing_subscriber::EnvFilter::try_new(filter.as_directive()).unwrap_or_default();
-    let (env_layer, env_handle) = tracing_subscriber::reload::Layer::new(env_filter);
-    let subscriber = inner_subscriber.with(env_layer);
+    let (env_layer, raw): (_, ReloadHandle) = tracing_subscriber::reload::Layer::new(env_filter);
 
-    let shared_state = std::sync::Arc::new(arc_swap::ArcSwap::new(std::sync::Arc::new(style)));
-    let reload_handle = TracingGuard {
-        raw: builder::ReloadHandle(env_handle),
+    let layers: Vec<BoxedLayer> = vec![
+        tracing_subscriber::fmt::Layer::default()
+            .with_writer(io::sink)
+            .boxed(),
+    ];
+
+    let subscriber = Registry::default().with(layers).with(env_layer);
+
+    let guard = TracingGuard {
+        raw,
         filter,
-        style: shared_state,
+        style: Arc::new(arc_swap::ArcSwap::new(Arc::new(style))),
         #[cfg(feature = "file")]
         worker_guard: None,
         #[cfg(feature = "file")]
         log_path: None,
     };
 
-    let console_layer = tracing_subscriber::fmt::Layer::default()
-        .with_writer(io::sink)
-        .boxed();
-    let (layer, _) = tracing_subscriber::reload::Layer::new(console_layer);
-    (layer, reload_handle, subscriber)
+    (guard, subscriber)
 }
 
 #[test]
@@ -80,7 +63,7 @@ fn build_layer_all_variants() {
                 style: Style::default(),
                 target: target.clone(),
             };
-            let _layer = build_layer::<tracing_subscriber::Registry>(&w);
+            let _layer = build_layer(&w);
         }
     }
 }
@@ -91,7 +74,7 @@ fn build_layer_no_ansi() {
         ansi: false,
         ..Default::default()
     };
-    let _layer = build_layer::<tracing_subscriber::Registry>(&w);
+    let _layer = build_layer(&w);
 }
 
 #[test]
@@ -100,20 +83,19 @@ fn build_layer_custom_time() {
         time_format: Some(String::from("%Y/%m/%d")),
         ..Default::default()
     };
-    let _layer = build_layer::<tracing_subscriber::Registry>(&w);
+    let _layer = build_layer(&w);
 }
 
 #[cfg(feature = "nerd")]
 #[test]
 fn build_layer_with_nerd_icons() {
     let w = Writer::default();
-    let _layer = build_layer::<tracing_subscriber::Registry>(&w);
+    let _layer = build_layer(&w);
 }
 
 #[test]
 fn reload_handle_with_style_config() {
-    let style = Style::default();
-    let (_layer, mut handle, _subscriber) = build_reload_filter(Level::Info, style);
+    let (mut handle, _sub) = build_test_guard(Level::Info, Style::default());
     handle.with_style(|s| s.theme = Theme::dracula());
     handle.with_style(|s| s.icons = Icons::UNICODE);
     handle.with_style(|s| s.labels = LevelLabels::SHORT);
@@ -121,14 +103,14 @@ fn reload_handle_with_style_config() {
 
 #[test]
 fn reload_handle_set_target_level_accepts_string() {
-    let (_layer, mut handle, _subscriber) = build_reload_filter(Level::Info, Style::default());
+    let (mut handle, _sub) = build_test_guard(Level::Info, Style::default());
     let target = String::from("my_crate");
     assert!(handle.set_target_level(target, Level::Trace).is_ok());
 }
 
 #[test]
 fn reload_handle_remove_nonexistent_target_level() {
-    let (_layer, mut handle, _subscriber) = build_reload_filter(Level::Info, Style::default());
+    let (mut handle, _sub) = build_test_guard(Level::Info, Style::default());
     assert!(handle.remove_target_level("nonexistent_crate").is_ok());
 }
 

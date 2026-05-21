@@ -1,9 +1,9 @@
-#![allow(clippy::print_stdout, clippy::print_stderr)]
+#![allow(clippy::print_stdout, clippy::print_stderr, clippy::unwrap_used)]
 use std::sync::LazyLock;
 
 use acta::{
-    Config, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style, Theme, Writer,
-    WriterTarget, build_layer, build_reload_filter, init, rotate_log_file,
+    Config, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style, Theme, Writer,
+    WriterTarget, build_layer, init, rotate_log_file,
 };
 use smallvec::{SmallVec, smallvec};
 use tracing_subscriber::prelude::*;
@@ -40,34 +40,11 @@ macro_rules! log {
 }
 
 fn run_with(w: &Writer, f: impl FnOnce()) {
-    let layer = build_layer::<tracing_subscriber::Registry>(w);
+    let layer = build_layer(w);
     let subscriber = tracing_subscriber::registry().with(layer);
     tracing::subscriber::with_default(subscriber, f);
 }
 
-fn none_layer<S>() -> Option<acta::builder::FmtLayer<S>>
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-{
-    None
-}
-
-fn run_with_reload(
-    style: Style,
-    w: &Writer,
-    level: Level,
-    f: impl FnOnce(&mut acta::TracingGuard),
-) {
-    let (filter_layer, mut guard) = build_reload_filter(level, style);
-    let subscriber = tracing_subscriber::Registry::default()
-        .with(Some(build_layer::<tracing_subscriber::Registry>(w)))
-        .with(none_layer())
-        .with(none_layer())
-        .with(none_layer())
-        .with(none_layer())
-        .with(filter_layer);
-    tracing::subscriber::with_default(subscriber, || f(&mut guard));
-}
 fn emit_demo(label: &str) {
     tracing::info!("{label}: info");
     tracing::warn!(user = "alice", count = 42, "{label}: warn");
@@ -277,68 +254,6 @@ fn main() {
         emit_spans,
     );
 
-    section("RELOAD");
-
-    log!(sub, "Level reload");
-    run_with_reload(
-        Style::default(),
-        &Writer {
-            show_path: false,
-            show_spans: false,
-            ..Default::default()
-        },
-        Level::Info,
-        |h| {
-            tracing::info!("level=Info: info passes");
-            h.set_level(Level::Debug).unwrap();
-            log!(info, "→ set_level(Debug)");
-            tracing::debug!("level=Debug: debug passes");
-        },
-    );
-
-    log!(sub, "Target-level reload");
-    run_with_reload(
-        Style::default(),
-        &Writer {
-            show_path: false,
-            show_spans: false,
-            ..Default::default()
-        },
-        Level::Debug,
-        |h| {
-            tracing::info!(target: "demo", "before: info@demo passes (level=Debug)");
-            h.set_target_level("demo", Level::Warn).unwrap();
-            log!(info, "→ set_target_level(demo, Warn)");
-            tracing::info!(target: "demo", "after: info@demo suppressed");
-            tracing::warn!(target: "demo", "after: warn@demo passes");
-        },
-    );
-
-    log!(sub, "Style switch");
-    let style = Style {
-        icons: Icons::UNICODE,
-        ..Default::default()
-    };
-    run_with_reload(
-        style,
-        &Writer {
-            style,
-            show_path: false,
-            show_spans: false,
-            ..Default::default()
-        },
-        Level::Info,
-        |h| {
-            tracing::info!("unicode + acta theme");
-            h.with_style(|s| s.theme = Theme::monokai());
-            log!(info, "→ monokai theme");
-            tracing::info!("monokai theme");
-            h.with_style(|s| s.icons = Icons::NERD);
-            log!(info, "→ nerd icons");
-            tracing::error!("nerd icons");
-        },
-    );
-
     section("INFRA");
 
     log!(sub, "Level → directive");
@@ -349,10 +264,16 @@ fn main() {
         Level::Debug,
         Level::Trace,
         Level::Off,
-        Level::Custom("info,my_crate=debug".into()),
     ] {
         log!(info, &format!("{l:?} → \"{}\"", l.as_directive()));
     }
+    log!(
+        info,
+        &format!(
+            "Filter::from_directive(\"info,my_crate=debug\") → \"{}\"",
+            Filter::from_directive("info,my_crate=debug").as_directive()
+        )
+    );
 
     log!(sub, "build_layer");
     for (desc, w) in [
@@ -367,7 +288,7 @@ fn main() {
             },
         ),
     ] {
-        drop(build_layer::<tracing_subscriber::Registry>(&w));
+        drop(build_layer(&w));
         log!(success, &format!("build_layer({desc})"));
     }
 
@@ -396,7 +317,8 @@ fn main() {
         }
     }
 
-    log!(sub, "init — end-to-end");
+    section("RELOAD via init");
+    log!(sub, "init + runtime reload");
     let dir = std::path::Path::new("data/logs/full");
     drop(std::fs::create_dir_all(dir));
     let config = Config::builder()
@@ -418,12 +340,26 @@ fn main() {
         })
         .build();
     match init(config) {
-        Ok(g) => {
+        Ok(mut g) => {
             log!(success, "init");
             if let Some(p) = g.log_path() {
                 log!(info, &format!("file → {}", p.display()));
             }
             tracing::info!(init = true, "console + file");
+
+            g.set_level(Level::Warn).unwrap();
+            log!(info, "→ set_level(Warn)");
+            tracing::info!("info suppressed");
+            tracing::warn!("warn passes");
+
+            g.set_target_level("demo", Level::Trace).unwrap();
+            log!(info, "→ set_target_level(demo, Trace)");
+            tracing::trace!(target: "demo", "demo trace passes");
+
+            g.with_style(|s| s.theme = Theme::monokai());
+            log!(info, "→ style switch (monokai)");
+            tracing::warn!("monokai");
+
             drop(g);
         }
         Err(e) => log!(fail, &format!("init: {e}")),
