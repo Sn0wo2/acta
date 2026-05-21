@@ -153,22 +153,32 @@ impl Formatter {
             let file_with_line = format!("{filename}:{line}");
 
             if file_with_line.len() + 2 <= max_width {
-                let clean_dir = &path_str[..last_slash]
-                    .chars()
-                    .rev()
-                    .take(max_width - file_with_line.len() - 1)
-                    .collect::<String>()
-                    .split('/')
-                    .next_back()
-                    .unwrap_or("")
-                    .to_string();
+                let dir_part = &path_str[..last_slash];
+                let remaining = max_width.saturating_sub(file_with_line.len() + 1);
+                let start = dir_part.len().saturating_sub(remaining);
+                let mut adj = start;
+                while adj < dir_part.len() && !dir_part.is_char_boundary(adj) {
+                    adj += 1;
+                }
+                let dir_tail = &dir_part[adj..];
+                let clean_dir = dir_tail
+                    .rfind('/')
+                    .map_or(dir_tail, |i| &dir_tail[i + 1..]);
 
-                return format!("{clean_dir}/{file_with_line}");
+                let mut result = String::with_capacity(max_width);
+                use std::fmt::Write;
+                let _ = write!(result, "{clean_dir}/{file_with_line}");
+                return result;
             }
         }
 
-        let start = full.len().saturating_sub(max_width - 1);
-        format!("\u{2026}{}", &full[start..])
+        // Truncate from left with ellipsis, guarding char boundaries
+        let start = full.len().saturating_sub(max_width.saturating_sub(1));
+        let mut adj = start;
+        while adj < full.len() && !full.is_char_boundary(adj) {
+            adj += 1;
+        }
+        format!("\u{2026}{}", &full[adj..])
     }
 
     fn write_time(&self, writer: &mut Writer<'_>, theme: &Theme) -> fmt::Result {
