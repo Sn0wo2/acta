@@ -8,6 +8,7 @@ use super::AsyncWriterTarget;
 #[derive(Clone, Debug)]
 pub struct AsyncWriter {
     sender: mpsc::Sender<Vec<u8>>,
+    capacity: usize,
 }
 
 impl Write for AsyncWriter {
@@ -17,7 +18,8 @@ impl Write for AsyncWriter {
             Err(mpsc::error::TrySendError::Full(_)) => {
                 let _unused = writeln!(
                     std::io::stderr(),
-                    "acta: async writer buffer full (4096), dropping log message"
+                    "acta: async writer buffer full ({}), dropping log message",
+                    self.capacity
                 );
                 Ok(buf.len())
             }
@@ -41,8 +43,11 @@ impl MakeWriter<'_> for AsyncWriter {
     }
 }
 
-pub fn async_writer_for(target: AsyncWriterTarget) -> AsyncWriter {
-    let (sender, mut receiver) = mpsc::channel::<Vec<u8>>(4096);
+/// Spawn a Tokio task that drains a bounded channel into `target`, returning a
+/// writer whose channel holds up to `capacity` queued log messages before new
+/// ones are dropped.
+pub fn async_writer_for(target: AsyncWriterTarget, capacity: usize) -> AsyncWriter {
+    let (sender, mut receiver) = mpsc::channel::<Vec<u8>>(capacity);
 
     tokio::spawn(async move {
         let writer: &mut (dyn AsyncWrite + Unpin + Send) = match target {
@@ -57,5 +62,5 @@ pub fn async_writer_for(target: AsyncWriterTarget) -> AsyncWriter {
         }
     });
 
-    AsyncWriter { sender }
+    AsyncWriter { sender, capacity }
 }

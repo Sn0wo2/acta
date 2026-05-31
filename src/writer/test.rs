@@ -1,8 +1,4 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::indexing_slicing,
-    clippy::unnecessary_map_or
-)]
+#![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
 use crate::Rotation;
 use crate::writer::file::{build_file_layer, resolve_log_path, rotate_log_file};
@@ -125,12 +121,7 @@ fn rotate_compress() {
     for _ in 0..100 {
         std::thread::sleep(std::time::Duration::from_millis(10));
         entries = std::fs::read_dir(&dir).unwrap().flatten().collect();
-        if entries.len() == 1
-            && entries[0]
-                .path()
-                .extension()
-                .map_or(false, |ext| ext == "gz")
-        {
+        if entries.len() == 1 && entries[0].path().extension().is_some_and(|ext| ext == "gz") {
             break;
         }
     }
