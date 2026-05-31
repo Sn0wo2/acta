@@ -57,16 +57,16 @@ Keep the returned guard alive for as long as logging is needed. Dropping it stop
 
 ## Features
 
-| Feature        | Enabled by default | Description                                                                                              |
-| -------------- | ------------------ | -------------------------------------------------------------------------------------------------------- |
-| `unicode`      | Yes                | Uses the Unicode icon set unless `nerd` selects Nerd Font icons.                                         |
-| `file`         | Yes                | Enables `init`, `TracingGuard`, and file logging through `tracing-appender`. |
-| `compress`     | No                 | Enables `Rotation::Compress` for gzip-compressing old log files.                                         |
-| `serde`        | No                 | Adds `Serialize` / `Deserialize` support for config types.                                               |
-| `nerd`         | No                 | Enables Nerd Font icons through `Icons::NERD` and uses them by default.                         |
-| `custom-async` | No                 | Enables Tokio-backed async console writers and exports `AsyncWriter` helpers.                            |
-| `native-async` | No                 | Enables non-blocking console writers backed by `tracing-appender`.                                       |
-| `async`        | No                 | Enables both `custom-async` and `native-async`.                                                          |
+| Feature        | Enabled by default | Description                                                                   |
+| -------------- | ------------------ | ----------------------------------------------------------------------------- |
+| `unicode`      | Yes                | Uses the Unicode icon set unless `nerd` selects Nerd Font icons.              |
+| `file`         | Yes                | Enables `init`, `TracingGuard`, and file logging through `tracing-appender`.  |
+| `compress`     | No                 | Enables `Rotation::Compress` for gzip-compressing old log files.              |
+| `serde`        | No                 | Adds `Serialize` / `Deserialize` support for config types.                    |
+| `nerd`         | No                 | Enables Nerd Font icons through `Icons::NERD` and uses them by default.       |
+| `custom-async` | No                 | Enables Tokio-backed async console writers and exports `AsyncWriter` helpers. |
+| `native-async` | No                 | Enables non-blocking console writers backed by `tracing-appender`.            |
+| `async`        | No                 | Enables both `custom-async` and `native-async`.                               |
 
 If you disable default features, `init` is unavailable unless the `file` feature is enabled.
 
@@ -107,11 +107,12 @@ fn main() -> Result<()> {
 
 ## Console formats
 
-| Format            | Description                                                        |
-| ----------------- | ------------------------------------------------------------------ |
+| Format                         | Description                                                        |
+| ------------------------------ | ------------------------------------------------------------------ |
 | `Format::Compact(LayerConfig)` | Default themed formatter with optional path and span display.      |
 | `Format::Pretty(LayerConfig)`  | `tracing-subscriber` pretty formatter with file and line metadata. |
 | `Format::Json(LayerConfig)`    | Flattened JSON events without ANSI colors.                         |
+
 ## File logging
 
 File logging is available with the `file` feature, which is enabled by default. File logs are written as flattened JSON
@@ -316,6 +317,9 @@ With `custom-async`, `native-async`, or `async`, `Writer` gains async stdout and
 `AsyncMode::Custom` uses Tokio, so your application must run inside a Tokio runtime. If you use `#[tokio::main]`,
 add Tokio as a direct dependency with the required runtime and macro features.
 
+`buffer_size` sets the bounded-channel capacity — the number of log messages that may be queued before new ones
+are dropped. Defaults to `DEFAULT_ASYNC_BUFFER_SIZE` (4096); with `serde` enabled the field may be omitted.
+
 ```rust
 use acta::{
     init, AsyncMode, Config, Result, Writer, WriterTarget,
@@ -325,7 +329,7 @@ use acta::{
 async fn main() -> Result<()> {
     let config = Config {
         writers: vec![Writer {
-            target: WriterTarget::AsyncStdout(AsyncMode::Custom),
+            target: WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size: 4096 }),
             ..Default::default()
         }],
         ..Default::default()
