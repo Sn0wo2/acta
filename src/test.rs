@@ -198,3 +198,11 @@ fn set_target_level_after_raw_directive_adds_per_target_override() {
         "directive should include the new per-target override: {directive}"
     );
 }
+
+#[test]
+fn set_filter_with_invalid_directive_returns_error() {
+    let (mut guard, _sub) = build_test_guard(Level::Info, Style::default());
+    let filter = Filter::from_directive("=invalid");
+    let result = guard.set_filter(filter);
+    assert!(result.is_err(), "set_filter with invalid directive should return Err");
+}
