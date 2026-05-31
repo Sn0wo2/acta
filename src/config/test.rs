@@ -151,11 +151,8 @@ fn filter_default_is_info() {
 #[cfg(feature = "file")]
 fn writer_file_target() {
     let w = Writer {
-        target: WriterTarget::File {
-            path: PathBuf::from("app.log"),
-            rotation: Rotation::Rename,
-        },
+        target: WriterTarget::File(FileConfig::new("app.log").with_rotation(Rotation::Rename)),
         ..Default::default()
     };
-    assert!(matches!(w.target, WriterTarget::File { .. }));
+    assert!(matches!(w.target, WriterTarget::File(_)));
 }
