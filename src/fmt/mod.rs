@@ -1,4 +1,4 @@
-use crate::color::Styled;
+use crate::color::AnsiStyle;
 use crate::config::ColorDepth;
 use crate::config::{Icons, LevelLabels, Style, Theme};
 use chrono::Utc;
@@ -102,6 +102,12 @@ impl Formatter {
     }
 
     #[must_use]
+    pub const fn with_path_width(mut self, width: usize) -> Self {
+        self.path_width = width;
+        self
+    }
+
+    #[must_use]
     pub fn with_time_format(mut self, fmt: String) -> Self {
         self.time_format = fmt;
         self
@@ -119,7 +125,7 @@ impl Formatter {
         self
     }
 
-    pub(crate) fn format_path(&self, file: &str, line: u32) -> String {
+    pub(crate) fn format_path(&self, file: &str, line: u32) -> compact_str::CompactString {
         let max_width = self.path_width;
 
         let relative = file
@@ -128,16 +134,20 @@ impl Formatter {
             .or_else(|| file.split_once("src\\").map(|(_, tail)| tail))
             .unwrap_or(file);
 
-        let path_str = relative.replace('\\', "/");
+        let path_str = if relative.contains('\\') {
+            compact_str::CompactString::from(relative.replace('\\', "/"))
+        } else {
+            compact_str::CompactString::new(relative)
+        };
 
-        let full = format!("{path_str}:{line}");
+        let full = compact_str::format_compact!("{path_str}:{line}");
         if full.len() <= max_width {
-            return format!("{full:>max_width$}");
+            return compact_str::format_compact!("{full:>max_width$}");
         }
 
         if let Some(last_slash) = path_str.rfind('/') {
             let filename = &path_str[last_slash + 1..];
-            let file_with_line = format!("{filename}:{line}");
+            let file_with_line = compact_str::format_compact!("{filename}:{line}");
 
             if file_with_line.len() + 2 <= max_width {
                 let dir_part = &path_str[..last_slash];
@@ -149,10 +159,14 @@ impl Formatter {
                     adj += 1;
                 }
                 let dir_tail = &dir_part[adj..];
-                let clean_dir = dir_tail.rfind('/').map_or(dir_tail, |i| &dir_tail[i + 1..]);
+                let clean_dir = if adj > 0 && dir_part.as_bytes()[adj - 1] == b'/' {
+                    dir_tail
+                } else {
+                    dir_tail.find('/').map_or(dir_tail, |i| &dir_tail[i + 1..])
+                };
 
-                let formatted = format!("{clean_dir}/{file_with_line}");
-                return format!("{formatted:>max_width$}");
+                let formatted = compact_str::format_compact!("{clean_dir}/{file_with_line}");
+                return compact_str::format_compact!("{formatted:>max_width$}");
             }
         }
 
@@ -161,7 +175,7 @@ impl Formatter {
         while adj < full.len() && !full.is_char_boundary(adj) {
             adj += 1;
         }
-        format!("…{}", &full[adj..])
+        compact_str::format_compact!("…{}", &full[adj..])
     }
 
     fn write_time(&self, writer: &mut Writer<'_>, theme: &Theme) -> fmt::Result {
@@ -169,7 +183,7 @@ impl Formatter {
         write!(
             writer,
             "{}",
-            OwoStyle::from(Styled::new(
+            OwoStyle::from(AnsiStyle::new(
                 Rgb(theme.text.0, theme.text.1, theme.text.2),
                 self.color_depth
             ))
@@ -188,7 +202,7 @@ impl Formatter {
             writer,
             "{}",
             OwoStyle::from(
-                Styled::new(
+                AnsiStyle::new(
                     Rgb(theme.text.0, theme.text.1, theme.text.2),
                     self.color_depth
                 )
@@ -202,7 +216,7 @@ impl Formatter {
         write!(
             writer,
             " {} ",
-            OwoStyle::from(Styled::new(
+            OwoStyle::from(AnsiStyle::new(
                 Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
                 self.color_depth
             ))
@@ -224,7 +238,7 @@ impl Formatter {
             write!(
                 writer,
                 "{}",
-                OwoStyle::from(Styled::new(
+                OwoStyle::from(AnsiStyle::new(
                     Rgb(theme.text.0, theme.text.1, theme.text.2),
                     self.color_depth
                 ))
@@ -240,17 +254,17 @@ impl Formatter {
                 writer,
                 "{}{}{}{}",
                 sep,
-                OwoStyle::from(Styled::new(
+                OwoStyle::from(AnsiStyle::new(
                     Rgb(theme.secondary.0, theme.secondary.1, theme.secondary.2),
                     self.color_depth
                 ))
                 .style(k),
-                OwoStyle::from(Styled::new(
+                OwoStyle::from(AnsiStyle::new(
                     Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
                     self.color_depth
                 ))
                 .style("="),
-                OwoStyle::from(Styled::new(
+                OwoStyle::from(AnsiStyle::new(
                     Rgb(theme.text.0, theme.text.1, theme.text.2),
                     self.color_depth
                 ))
@@ -286,28 +300,10 @@ impl Formatter {
         }
 
         let total = spans.len();
-        let accent = OwoStyle::from(Styled::new(
-            Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
-            self.color_depth,
-        ));
-        let accent_dimmed = OwoStyle::from(
-            Styled::new(
-                Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
-                self.color_depth,
-            )
-            .dimmed(),
-        );
-        let text = OwoStyle::from(Styled::new(
-            Rgb(theme.text.0, theme.text.1, theme.text.2),
-            self.color_depth,
-        ));
-        let text_dimmed = OwoStyle::from(
-            Styled::new(
-                Rgb(theme.text.0, theme.text.1, theme.text.2),
-                self.color_depth,
-            )
-            .dimmed(),
-        );
+        let accent = OwoStyle::from(AnsiStyle::new(Rgb(theme.accent.0, theme.accent.1, theme.accent.2), self.color_depth));
+        let accent_dimmed = OwoStyle::from(AnsiStyle::new(Rgb(theme.accent.0, theme.accent.1, theme.accent.2), self.color_depth).dimmed());
+        let text = OwoStyle::from(AnsiStyle::new(Rgb(theme.text.0, theme.text.1, theme.text.2), self.color_depth));
+        let text_dimmed = OwoStyle::from(AnsiStyle::new(Rgb(theme.text.0, theme.text.1, theme.text.2), self.color_depth).dimmed());
 
         write!(writer, " {}", accent.style("["))?;
 
@@ -357,8 +353,8 @@ where
         };
 
         let level_rgb = Rgb(color.0, color.1, color.2);
-        let fg_only = OwoStyle::from(Styled::new(level_rgb, self.color_depth));
-        let on_bg = OwoStyle::from(Styled::new(level_rgb, self.color_depth).on());
+        let fg_only = OwoStyle::from(AnsiStyle::new(level_rgb, self.color_depth));
+        let on_bg = OwoStyle::from(AnsiStyle::new(level_rgb, self.color_depth).on());
 
         let bracket_style = if config.icons.name == "nerd" {
             fg_only
@@ -369,7 +365,7 @@ where
         write!(
             writer,
             "{}",
-            OwoStyle::from(Styled::new(
+            OwoStyle::from(AnsiStyle::new(
                 Rgb(
                     config.theme.accent.0,
                     config.theme.accent.1,
@@ -384,7 +380,7 @@ where
             writer,
             " {} ",
             OwoStyle::from(
-                Styled::new(
+                AnsiStyle::new(
                     Rgb(
                         config.theme.accent.0,
                         config.theme.accent.1,
@@ -408,7 +404,7 @@ where
         write!(
             writer,
             "{} ",
-            OwoStyle::from(Styled::new(
+            OwoStyle::from(AnsiStyle::new(
                 Rgb(
                     config.theme.accent.0,
                     config.theme.accent.1,
