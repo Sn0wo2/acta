@@ -4,7 +4,7 @@ use std::io;
 use std::sync::Arc;
 
 use super::*;
-use crate::builder::{BoxedLayer, Layers, ReloadHandle, build_layer};
+use crate::builder::{BoxedLayer, ReloadHandle, build_layer_with};
 use crate::config::LayerConfig;
 use tracing_subscriber::Registry;
 use tracing_subscriber::layer::Layered;
@@ -27,18 +27,17 @@ fn build_test_guard(level: Level, style: Style) -> (TracingGuard, TestSubscriber
             .boxed(),
     ];
 
-    let subscriber = Registry::default().with(Layers(layers)).with(env_layer);
+    let subscriber = Registry::default().with(layers).with(env_layer);
 
     let guard = TracingGuard {
         raw,
         filter,
         style: Arc::new(arc_swap::ArcSwap::new(Arc::new(style))),
         #[cfg(feature = "file")]
-        worker_guard: None,
+        worker_guards: Vec::new(),
         #[cfg(feature = "file")]
-        log_path: None,
+        log_paths: Vec::new(),
     };
-
     (guard, subscriber)
 }
 
@@ -63,7 +62,7 @@ fn build_layer_all_variants() {
                 style: Style::default(),
                 target: target.clone(),
             };
-            let _layer = build_layer(&w);
+            let _layer = build_layer_with(&w, None);
         }
     }
 }
@@ -74,7 +73,7 @@ fn build_layer_no_ansi() {
         ansi: false,
         ..Default::default()
     };
-    let _layer = build_layer(&w);
+    let _layer = build_layer_with(&w, None);
 }
 
 #[test]
@@ -83,14 +82,14 @@ fn build_layer_custom_time() {
         time_format: Some(String::from("%Y/%m/%d")),
         ..Default::default()
     };
-    let _layer = build_layer(&w);
+    let _layer = build_layer_with(&w, None);
 }
 
 #[cfg(feature = "nerd")]
 #[test]
 fn build_layer_with_nerd_icons() {
     let w = Writer::default();
-    let _layer = build_layer(&w);
+    let _layer = build_layer_with(&w, None);
 }
 
 #[test]
@@ -136,7 +135,7 @@ fn acta_error_from_io_error() {
 
 #[test]
 fn set_filter_with_raw_directive_updates_guard() {
-    let (mut guard, _subscriber) = build_test_guard(Level::Info, Style::default());
+    let (mut guard, subscriber) = build_test_guard(Level::Info, Style::default());
     let filter = Filter::from_directive("info,my_crate=debug");
     guard
         .set_filter(filter)
@@ -146,6 +145,18 @@ fn set_filter_with_raw_directive_updates_guard() {
         "info,my_crate=debug",
         "guard.filter should reflect the raw directive applied via set_filter"
     );
+
+    // Verify actual tracing behavior reflects the filter
+    tracing::subscriber::with_default(subscriber, || {
+        assert!(
+            tracing::enabled!(tracing::Level::INFO),
+            "info should be enabled with 'info' filter"
+        );
+        assert!(
+            !tracing::enabled!(tracing::Level::TRACE),
+            "trace should NOT be enabled with 'info' filter"
+        );
+    });
 }
 
 #[test]
