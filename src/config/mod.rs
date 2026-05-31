@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 #[cfg(feature = "nerd")]
 use nerd_font_symbols::{cod, fa, ple};
 use std::collections::HashMap;
@@ -40,12 +41,20 @@ impl LevelLabels {
         }
     }
 
-    pub const DEFAULT: Self = Self {
+    pub const LONG: Self = Self {
         error: "ERROR",
         warn: " WARN",
         info: " INFO",
         debug: "DEBUG",
         trace: "TRACE",
+    };
+
+    pub const MEDIUM: Self = Self {
+        error: "ERR",
+        warn: "WRN",
+        info: "INF",
+        debug: "DBG",
+        trace: "TRC",
     };
 
     pub const SHORT: Self = Self {
@@ -270,12 +279,22 @@ impl Default for Theme {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 #[allow(clippy::exhaustive_structs)]
 pub struct Style {
     pub theme: Theme,
     pub icons: Icons,
     pub labels: LevelLabels,
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Self {
+            theme: Theme::default(),
+            icons: Icons::default(),
+            labels: LevelLabels::LONG,
+        }
+    }
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -379,6 +398,31 @@ pub enum Rotation {
     #[cfg(feature = "compress")]
     Compress,
 }
+#[cfg(feature = "file")]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[allow(clippy::module_name_repetitions)]
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct FileConfig {
+    pub path: PathBuf,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub rotation: Rotation,
+}
+
+#[cfg(feature = "file")]
+impl FileConfig {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            rotation: Rotation::default(),
+        }
+    }
+
+    pub const fn with_rotation(mut self, rotation: Rotation) -> Self {
+        self.rotation = rotation;
+        self
+    }
+}
 
 #[cfg_attr(
     feature = "serde",
@@ -423,8 +467,8 @@ impl Level {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Filter {
-    base: compact_str::CompactString,
-    targets: HashMap<compact_str::CompactString, Level>,
+    base: CompactString,
+    targets: HashMap<CompactString, Level>,
 }
 
 impl Filter {
@@ -437,18 +481,14 @@ impl Filter {
 
     /// Build a `Filter` from a raw `EnvFilter`-style directive string,
     /// e.g. `"info,my_crate=debug,my_crate::db=trace"`.
-    pub fn from_directive(directive: impl Into<compact_str::CompactString>) -> Self {
+    pub fn from_directive(directive: impl Into<CompactString>) -> Self {
         Self {
             base: directive.into(),
             targets: HashMap::new(),
         }
     }
 
-    pub fn with_target(
-        &mut self,
-        target: impl Into<compact_str::CompactString>,
-        level: Level,
-    ) -> &mut Self {
+    pub fn with_target(&mut self, target: impl Into<CompactString>, level: Level) -> &mut Self {
         self.targets.insert(target.into(), level);
         self
     }
@@ -492,15 +532,20 @@ pub enum WriterTarget {
     Stdout,
     Stderr,
     #[cfg(feature = "file")]
-    File {
-        path: PathBuf,
-        #[cfg_attr(feature = "serde", serde(default))]
-        rotation: Rotation,
-    },
+    File(FileConfig),
     #[cfg(any(feature = "custom-async", feature = "native-async"))]
     AsyncStdout(AsyncMode),
     #[cfg(any(feature = "custom-async", feature = "native-async"))]
     AsyncStderr(AsyncMode),
+}
+
+/// Default bounded-channel capacity for [`AsyncMode::Custom`] writers.
+#[cfg(feature = "custom-async")]
+pub const DEFAULT_ASYNC_BUFFER_SIZE: usize = 4096;
+
+#[cfg(all(feature = "custom-async", feature = "serde"))]
+const fn default_async_buffer_size() -> usize {
+    DEFAULT_ASYNC_BUFFER_SIZE
 }
 
 #[cfg(any(feature = "custom-async", feature = "native-async"))]
@@ -512,8 +557,13 @@ pub enum WriterTarget {
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
 pub enum AsyncMode {
+    /// Tokio-backed writer with a configurable bounded-channel `buffer_size`
+    /// (number of queued log messages before new ones are dropped).
     #[cfg(feature = "custom-async")]
-    Custom,
+    Custom {
+        #[cfg_attr(feature = "serde", serde(default = "default_async_buffer_size"))]
+        buffer_size: usize,
+    },
     #[cfg(feature = "native-async")]
     Native,
 }
@@ -523,7 +573,9 @@ pub enum AsyncMode {
 impl Default for AsyncMode {
     fn default() -> Self {
         #[cfg(feature = "custom-async")]
-        return Self::Custom;
+        return Self::Custom {
+            buffer_size: DEFAULT_ASYNC_BUFFER_SIZE,
+        };
         #[cfg(all(feature = "native-async", not(feature = "custom-async")))]
         return Self::Native;
     }
