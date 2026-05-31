@@ -15,76 +15,7 @@ use tracing_subscriber::prelude::*;
 use crate::writer;
 
 pub(crate) type BoxedLayer = Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>;
-
-/// Newtype wrapping Vec<BoxedLayer> to avoid orphan-rule reliance on
-/// tracing-subscriber's blanket `impl Layer<S> for Vec<L>`.
-pub(crate) struct Layers(pub(crate) Vec<BoxedLayer>);
-
-impl tracing_subscriber::Layer<Registry> for Layers {
-    fn on_layer(&mut self, subscriber: &mut Registry) {
-        for layer in &mut self.0 {
-            layer.on_layer(subscriber);
-        }
-    }
-
-    fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
-        for layer in &self.0 {
-            layer.on_new_span(attrs, id, ctx.clone());
-        }
-    }
-
-    fn on_event(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
-        for layer in &self.0 {
-            layer.on_event(event, ctx.clone());
-        }
-    }
-
-    fn on_enter(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
-        for layer in &self.0 {
-            layer.on_enter(id, ctx.clone());
-        }
-    }
-
-    fn on_exit(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
-        for layer in &self.0 {
-            layer.on_exit(id, ctx.clone());
-        }
-    }
-
-    fn on_close(&self, id: tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
-        for layer in &self.0 {
-            layer.on_close(id.clone(), ctx.clone());
-        }
-    }
-
-    fn on_record(&self, id: &tracing::span::Id, values: &tracing::span::Record<'_>, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
-        for layer in &self.0 {
-            layer.on_record(id, values, ctx.clone());
-        }
-    }
-
-    fn on_follows_from(&self, id: &tracing::span::Id, follows: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
-        for layer in &self.0 {
-            layer.on_follows_from(id, follows, ctx.clone());
-        }
-    }
-
-    fn on_id_change(&self, old: &tracing::span::Id, new: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, Registry>) {
-        for layer in &self.0 {
-            layer.on_id_change(old, new, ctx.clone());
-        }
-    }
-
-    fn enabled(&self, metadata: &tracing::Metadata<'_>, ctx: tracing_subscriber::layer::Context<'_, Registry>) -> bool {
-        self.0.iter().any(|layer| layer.enabled(metadata, ctx.clone()))
-    }
-
-    fn event_enabled(&self, event: &tracing::Event<'_>, ctx: tracing_subscriber::layer::Context<'_, Registry>) -> bool {
-        self.0.iter().any(|layer| layer.event_enabled(event, ctx.clone()))
-    }
-}
-
-pub(crate) type InnerSubscriber = Layered<Layers, Registry>;
+pub(crate) type InnerSubscriber = Layered<Vec<BoxedLayer>, Registry>;
 pub(crate) type ReloadHandle =
     tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, InnerSubscriber>;
 
@@ -95,7 +26,7 @@ fn detect_color_depth(target: &WriterTarget) -> ColorDepth {
         WriterTarget::Stdout => Stream::Stdout,
         WriterTarget::Stderr => Stream::Stderr,
         #[cfg(feature = "file")]
-        WriterTarget::File { .. } => return ColorDepth::NoColor,
+        WriterTarget::File(_) => return ColorDepth::NoColor,
         #[cfg(any(feature = "custom-async", feature = "native-async"))]
         WriterTarget::AsyncStdout(_) => Stream::Stdout,
         #[cfg(any(feature = "custom-async", feature = "native-async"))]
@@ -133,16 +64,12 @@ fn build_formatter(
         .with_show_spans(writer.show_spans)
         .with_color_depth(color_depth);
     if let Some(tf) = &writer.time_format {
-        f = f.with_time_format(tf);
+        f = f.with_time_format(tf.clone());
     }
     f
 }
 
-pub fn build_layer(writer: &Writer) -> BoxedLayer {
-    build_layer_with(writer, None)
-}
-
-fn build_layer_with(
+pub(crate) fn build_layer_with(
     writer: &Writer,
     shared_handle: Option<Arc<arc_swap::ArcSwap<Style>>>,
 ) -> BoxedLayer {
@@ -168,8 +95,11 @@ fn build_layer_with(
                 WriterTarget::Stdout => $layer.with_writer(io::stdout).boxed(),
                 WriterTarget::Stderr => $layer.with_writer(io::stderr).boxed(),
                 #[cfg(feature = "custom-async")]
-                WriterTarget::AsyncStdout(AsyncMode::Custom) => $layer
-                    .with_writer(writer::async_writer_for(writer::AsyncWriterTarget::Stdout))
+                WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size }) => $layer
+                    .with_writer(writer::async_writer_for(
+                        writer::AsyncWriterTarget::Stdout,
+                        *buffer_size,
+                    ))
                     .boxed(),
                 #[cfg(feature = "native-async")]
                 WriterTarget::AsyncStdout(AsyncMode::Native) => $layer
@@ -178,8 +108,11 @@ fn build_layer_with(
                     ))
                     .boxed(),
                 #[cfg(feature = "custom-async")]
-                WriterTarget::AsyncStderr(AsyncMode::Custom) => $layer
-                    .with_writer(writer::async_writer_for(writer::AsyncWriterTarget::Stderr))
+                WriterTarget::AsyncStderr(AsyncMode::Custom { buffer_size }) => $layer
+                    .with_writer(writer::async_writer_for(
+                        writer::AsyncWriterTarget::Stderr,
+                        *buffer_size,
+                    ))
                     .boxed(),
                 #[cfg(feature = "native-async")]
                 WriterTarget::AsyncStderr(AsyncMode::Native) => $layer
@@ -188,7 +121,7 @@ fn build_layer_with(
                     ))
                     .boxed(),
                 #[cfg(feature = "file")]
-                WriterTarget::File { .. } => $layer.with_writer(std::io::sink).boxed(),
+                WriterTarget::File(_) => $layer.with_writer(std::io::sink).boxed(),
             }
         }};
     }
@@ -222,6 +155,15 @@ fn build_layer_with(
                 .with_ansi(writer.ansi)
         ),
     }
+}
+
+/// Build a tracing layer from a [`Writer`] configuration.
+///
+/// Useful for ad-hoc subscriber setups such as demos or tests.
+/// For production use, prefer [`init`] which handles file layers and
+/// reload guards automatically.
+pub fn build_layer(writer: &Writer) -> BoxedLayer {
+    build_layer_with(writer, None)
 }
 
 #[cfg(feature = "file")]
@@ -272,25 +214,26 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
     )));
 
     let mut layers: Vec<BoxedLayer> = Vec::with_capacity(writers.len());
+
     #[cfg(feature = "file")]
+    let mut file_guards = Vec::new();
     #[cfg(feature = "file")]
-    let mut file_guard = None;
-    #[cfg(feature = "file")]
-    let mut log_path = None;
+    let mut log_paths = Vec::new();
 
     for writer in writers {
         #[cfg(feature = "file")]
-        let eligible = !matches!(writer.target, WriterTarget::File { .. });
+        let eligible = !matches!(writer.target, WriterTarget::File(_));
         #[cfg(not(feature = "file"))]
         let eligible = true;
 
         let handle = eligible.then(|| shared_style.clone());
 
         #[cfg(feature = "file")]
-        if let WriterTarget::File { ref path, rotation } = writer.target {
-            let (file_w, guard, resolved_path) = writer::file::build_file_layer(path, rotation)?;
-            file_guard = Some(guard);
-            log_path = Some(resolved_path);
+        if let WriterTarget::File(ref config) = writer.target {
+            let (file_w, guard, resolved_path) =
+                writer::file::build_file_layer(&config.path, config.rotation)?;
+            file_guards.push(guard);
+            log_paths.push(resolved_path);
             layers.push(build_file_layer(&writer, file_w));
             continue;
         }
@@ -301,7 +244,7 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
     let env_filter = tracing_subscriber::EnvFilter::try_new(filter.as_directive())?;
     let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(env_filter);
 
-    let subscriber = Registry::default().with(Layers(layers)).with(env_filter_layer);
+    let subscriber = Registry::default().with(layers).with(env_filter_layer);
 
     let _ = tracing_log::LogTracer::init();
     tracing::subscriber::set_global_default(subscriber)?;
@@ -311,9 +254,9 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
         filter,
         style: shared_style,
         #[cfg(feature = "file")]
-        worker_guard: file_guard,
+        worker_guards: file_guards,
         #[cfg(feature = "file")]
-        log_path,
+        log_paths,
     })
 }
 
@@ -323,9 +266,9 @@ pub struct TracingGuard {
     pub(crate) filter: Filter,
     pub(crate) style: Arc<arc_swap::ArcSwap<Style>>,
     #[cfg(feature = "file")]
-    pub(crate) worker_guard: Option<writer::LogHandle>,
+    pub(crate) worker_guards: Vec<writer::LogHandle>,
     #[cfg(feature = "file")]
-    pub(crate) log_path: Option<PathBuf>,
+    pub(crate) log_paths: Vec<PathBuf>,
 }
 
 impl std::fmt::Debug for TracingGuard {
@@ -333,9 +276,9 @@ impl std::fmt::Debug for TracingGuard {
         let mut d = f.debug_struct("TracingGuard");
         let _ = d.field("filter", &self.filter);
         #[cfg(feature = "file")]
-        let _ = d.field("log_path", &self.log_path);
+        let _ = d.field("log_paths", &self.log_paths);
         #[cfg(feature = "file")]
-        let _ = d.field("has_file_guard", &self.worker_guard.is_some());
+        let _ = d.field("num_file_guards", &self.worker_guards.len());
         d.finish_non_exhaustive()
     }
 }
@@ -381,6 +324,6 @@ impl TracingGuard {
 
     #[cfg(feature = "file")]
     pub fn log_path(&self) -> Option<&std::path::Path> {
-        self.log_path.as_deref()
+        self.log_paths.first().map(PathBuf::as_path)
     }
 }
