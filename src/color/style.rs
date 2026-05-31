@@ -26,13 +26,13 @@ const ANSI16_TABLE: [AnsiColors; 16] = [
 ];
 
 #[derive(Clone, Copy, Debug)]
-pub struct Styled {
+pub(crate) struct AnsiStyle {
     rgb: Rgb,
     depth: ColorDepth,
     on: bool,
 }
 
-impl Styled {
+impl AnsiStyle {
     pub(crate) const fn new(rgb: Rgb, depth: ColorDepth) -> Self {
         Self {
             rgb,
@@ -52,8 +52,8 @@ impl Styled {
     }
 }
 
-impl From<Styled> for OwoStyle {
-    fn from(s: Styled) -> Self {
+impl From<AnsiStyle> for OwoStyle {
+    fn from(s: AnsiStyle) -> Self {
         let style = Self::new();
         match s.depth {
             ColorDepth::TrueColor => {
