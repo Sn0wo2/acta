@@ -1,4 +1,5 @@
 use std::io::Write;
+use bytes::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt, stderr, stdout};
 use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
@@ -7,13 +8,13 @@ use super::AsyncWriterTarget;
 
 #[derive(Clone, Debug)]
 pub struct AsyncWriter {
-    sender: mpsc::Sender<Vec<u8>>,
+    sender: mpsc::Sender<Bytes>,
     capacity: usize,
 }
 
 impl Write for AsyncWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self.sender.try_send(buf.to_vec()) {
+        match self.sender.try_send(Bytes::copy_from_slice(buf)) {
             Ok(_) => Ok(buf.len()),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 let _unused = writeln!(
@@ -47,7 +48,7 @@ impl MakeWriter<'_> for AsyncWriter {
 /// writer whose channel holds up to `capacity` queued log messages before new
 /// ones are dropped.
 pub fn async_writer_for(target: AsyncWriterTarget, capacity: usize) -> AsyncWriter {
-    let (sender, mut receiver) = mpsc::channel::<Vec<u8>>(capacity);
+    let (sender, mut receiver) = mpsc::channel::<Bytes>(capacity);
 
     tokio::spawn(async move {
         let writer: &mut (dyn AsyncWrite + Unpin + Send) = match target {

@@ -10,6 +10,7 @@ dependencies = [
  "ansi_colours",
  "anstyle-lossy",
  "arc-swap",
+ "bytes",
  "chrono",
  "compact_str",
  "flate2",
