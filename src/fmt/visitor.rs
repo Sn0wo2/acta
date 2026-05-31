@@ -1,21 +1,26 @@
+use compact_str::CompactString;
 use smallvec::SmallVec;
 use std::fmt::Debug;
-
 use tracing::field::Field;
 
 #[derive(Default)]
 pub(super) struct EventVisitor {
-    pub(crate) message: Option<String>,
-    pub(crate) fields: SmallVec<[(&'static str, String); 4]>,
+    pub(crate) message: Option<CompactString>,
+    pub(crate) fields: SmallVec<[(CompactString, CompactString); 4]>,
 }
 
 impl EventVisitor {
-    pub(super) fn record_field(&mut self, name: &'static str, value: String) {
+    pub(super) fn record_field(
+        &mut self,
+        name: impl Into<CompactString>,
+        value: impl Into<CompactString>,
+    ) {
+        let name = name.into();
         if name == "msg" || name == "message" {
-            self.message = Some(value);
+            self.message = Some(value.into());
             return;
         }
-        self.fields.push((name, value));
+        self.fields.push((name, value.into()));
     }
 }
 
