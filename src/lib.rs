@@ -12,6 +12,8 @@ pub mod prelude;
 pub mod writer;
 
 pub use builder::{TracingGuard, build_layer, init};
+#[cfg(feature = "file")]
+pub use config::FileConfig;
 pub use config::{
     ColorDepth, Config, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style,
     Theme, Writer, WriterTarget,
@@ -27,6 +29,8 @@ pub use writer::{AsyncWriter, async_writer_for};
 
 #[cfg(any(feature = "custom-async", feature = "native-async"))]
 pub use config::AsyncMode;
+#[cfg(feature = "custom-async")]
+pub use config::DEFAULT_ASYNC_BUFFER_SIZE;
 
 #[cfg(any(feature = "custom-async", feature = "native-async"))]
 pub use writer::AsyncWriterTarget;
