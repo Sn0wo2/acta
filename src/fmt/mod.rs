@@ -40,14 +40,7 @@ impl Default for Formatter {
 impl Formatter {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            time_format: String::from("%H:%M:%S"),
-            path_width: DEFAULT_PATH_WIDTH,
-            show_path: true,
-            show_spans: true,
-            style: Arc::new(arc_swap::ArcSwap::new(Arc::new(Style::default()))),
-            color_depth: ColorDepth::TrueColor,
-        }
+        Self::new_with_handle(Arc::new(arc_swap::ArcSwap::new(Arc::new(Style::default()))))
     }
 
     /// Creates a Formatter that shares its style state with an existing handle.
@@ -109,14 +102,8 @@ impl Formatter {
     }
 
     #[must_use]
-    pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
-        self.time_format = fmt.into();
-        self
-    }
-
-    #[must_use]
-    pub const fn with_path_width(mut self, width: usize) -> Self {
-        self.path_width = width;
+    pub fn with_time_format(mut self, fmt: String) -> Self {
+        self.time_format = fmt;
         self
     }
 
@@ -154,16 +141,15 @@ impl Formatter {
 
             if file_with_line.len() + 2 <= max_width {
                 let dir_part = &path_str[..last_slash];
-                let remaining = max_width.saturating_sub(file_with_line.len() + 1);
-                let start = dir_part.len().saturating_sub(remaining);
+                let start = dir_part
+                    .len()
+                    .saturating_sub(max_width.saturating_sub(file_with_line.len() + 1));
                 let mut adj = start;
                 while adj < dir_part.len() && !dir_part.is_char_boundary(adj) {
                     adj += 1;
                 }
                 let dir_tail = &dir_part[adj..];
-                let clean_dir = dir_tail
-                    .rfind('/')
-                    .map_or(dir_tail, |i| &dir_tail[i + 1..]);
+                let clean_dir = dir_tail.rfind('/').map_or(dir_tail, |i| &dir_tail[i + 1..]);
 
                 let formatted = format!("{clean_dir}/{file_with_line}");
                 return format!("{formatted:>max_width$}");
@@ -171,12 +157,11 @@ impl Formatter {
         }
 
         // Truncate from left with ellipsis, guarding char boundaries
-        let start = full.len().saturating_sub(max_width.saturating_sub(1));
-        let mut adj = start;
+        let mut adj = full.len().saturating_sub(max_width.saturating_sub(1));
         while adj < full.len() && !full.is_char_boundary(adj) {
             adj += 1;
         }
-        format!("\u{2026}{}", &full[adj..])
+        format!("…{}", &full[adj..])
     }
 
     fn write_time(&self, writer: &mut Writer<'_>, theme: &Theme) -> fmt::Result {

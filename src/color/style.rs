@@ -1,10 +1,10 @@
+use crate::ColorDepth;
 use anstyle_lossy::palette::Palette;
 use anstyle_lossy::rgb_to_ansi;
 use owo_colors::AnsiColors;
 use owo_colors::Rgb;
 use owo_colors::Style as OwoStyle;
 use owo_colors::XtermColors;
-use crate::ColorDepth;
 
 const ANSI16_TABLE: [AnsiColors; 16] = [
     AnsiColors::Black,
@@ -50,10 +50,6 @@ impl Styled {
         self.on = true;
         self
     }
-
-    pub(crate) const fn as_tuple(&self) -> (u8, u8, u8) {
-        (self.rgb.0, self.rgb.1, self.rgb.2)
-    }
 }
 
 impl From<Styled> for OwoStyle {
@@ -67,15 +63,21 @@ impl From<Styled> for OwoStyle {
                 style.truecolor(s.rgb.0, s.rgb.1, s.rgb.2)
             }
             ColorDepth::Ansi256 => {
-                let ansi = XtermColors::from(ansi_colours::ansi256_from_rgb(s.as_tuple()));
+                let ansi =
+                    XtermColors::from(ansi_colours::ansi256_from_rgb((s.rgb.0, s.rgb.1, s.rgb.2)));
                 if s.on {
                     return style.on_color(ansi);
                 }
                 style.color(ansi)
             }
             ColorDepth::Ansi16 => {
-                let idx = rgb_to_ansi(s.as_tuple().into(), Palette::default()) as usize;
-                let ansi = ANSI16_TABLE.get(idx).copied().unwrap_or(AnsiColors::White);
+                let ansi = ANSI16_TABLE
+                    .get(
+                        rgb_to_ansi((s.rgb.0, s.rgb.1, s.rgb.2).into(), Palette::default())
+                            as usize,
+                    )
+                    .copied()
+                    .unwrap_or(AnsiColors::White);
                 if s.on {
                     return style.on_color(ansi);
                 }
