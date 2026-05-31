@@ -56,9 +56,7 @@ pub fn walk_src_max_width(dir: impl AsRef<Path>, strip_prefix: &str) -> usize {
         .iter()
         .map(|e| {
             let display = e.path().to_string_lossy().replace('\\', "/");
-            display
-                .find(strip_prefix)
-                .map_or(display.len(), |i| display[i + strip_prefix.len()..].len())
+            display.strip_prefix(strip_prefix).unwrap_or(&display).len()
         })
         .max()
         .unwrap_or(FALLBACK_WIDTH);

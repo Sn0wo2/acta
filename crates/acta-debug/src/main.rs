@@ -2,9 +2,10 @@
 use std::sync::LazyLock;
 
 use acta::{
-    Config, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style, Theme, Writer,
-    WriterTarget, build_layer, init, rotate_log_file,
+    Config, FileConfig, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style,
+    Theme, Writer, WriterTarget, build_layer, init, rotate_log_file,
 };
+
 use smallvec::{SmallVec, smallvec};
 use tracing_subscriber::prelude::*;
 
@@ -170,7 +171,8 @@ fn main() {
     section("LABELS");
     for (label, labels) in [
         ("short", LevelLabels::SHORT),
-        ("long", LevelLabels::DEFAULT),
+        ("medium", LevelLabels::MEDIUM),
+        ("long", LevelLabels::LONG),
     ] {
         log!(sub, label);
         run_with(
@@ -332,10 +334,10 @@ fn main() {
         })
         .with_writer(Writer {
             format: Format::Json(LayerConfig::json()),
-            target: WriterTarget::File {
-                path: dir.join("app.log"),
-                rotation: Rotation::default(),
-            },
+            target: WriterTarget::File(
+                FileConfig::new(dir.join("app.log")).with_rotation(Rotation::default()),
+            ),
+
             ..Default::default()
         })
         .build();
