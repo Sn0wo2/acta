@@ -5,12 +5,12 @@ use crate::config::LayerConfig;
 use tracing_subscriber::layer::Layered;
 use tracing_subscriber::prelude::*;
 
-pub(crate) type SubscriberWithBoth = Layered<
+pub type SubscriberWithBoth = Layered<
     tracing_subscriber::reload::Layer<tracing_subscriber::EnvFilter, builder::InnerSubscriber>,
     builder::InnerSubscriber,
 >;
 
-pub(crate) fn build_reload_filter(
+pub fn build_reload_filter(
     level: Level,
     style: Style,
 ) -> (

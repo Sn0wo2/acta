@@ -123,7 +123,7 @@ fn rotate_compress() {
             && entries[0]
                 .path()
                 .extension()
-                .map_or(false, |ext| ext == "gz")
+                .is_some_and(|ext| ext == "gz")
         {
             break;
         }
