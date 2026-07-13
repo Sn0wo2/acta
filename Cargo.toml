@@ -60,7 +60,7 @@ supports-color = "3"
 ansi_colours = "1.2"
 anstyle-lossy = "1.1"
 arc-swap = "1.7.1"
-compact_str = { version = "0.9", features = ["serde"] }
+compact_str = { version = "0.10", features = ["serde"] }
 
 [build-dependencies]
 acta-build = { workspace = true }
