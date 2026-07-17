@@ -40,7 +40,7 @@ jobs:
         run: python3 scripts/install-macos-sdk.py
 
       - name: Cache cargo-zigbuild
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-zigbuild
           key: ${{ runner.os }}-cargo-tool-zigbuild-v1
