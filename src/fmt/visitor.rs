@@ -1,4 +1,4 @@
-use compact_str::CompactString;
+use compact_str::{CompactString, format_compact};
 use smallvec::SmallVec;
 use std::fmt::Debug;
 use tracing::field::Field;
@@ -26,22 +26,22 @@ impl EventVisitor {
 
 impl tracing::field::Visit for EventVisitor {
     fn record_i64(&mut self, field: &Field, value: i64) {
-        self.record_field(field.name(), value.to_string());
+        self.record_field(field.name(), format_compact!("{value}"));
     }
 
     fn record_u64(&mut self, field: &Field, value: u64) {
-        self.record_field(field.name(), value.to_string());
+        self.record_field(field.name(), format_compact!("{value}"));
     }
 
     fn record_bool(&mut self, field: &Field, value: bool) {
-        self.record_field(field.name(), value.to_string());
+        self.record_field(field.name(), format_compact!("{value}"));
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.record_field(field.name(), value.to_owned());
+        self.record_field(field.name(), value);
     }
 
     fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        self.record_field(field.name(), format!("{value:?}"));
+        self.record_field(field.name(), format_compact!("{value:?}"));
     }
 }

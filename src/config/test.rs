@@ -47,15 +47,56 @@ fn config_builder_filter() {
 fn config_builder_multiple_writers() {
     let cfg = Config::builder()
         .level(Level::Info)
-        .with_writer(Writer {
-            target: WriterTarget::Stdout,
-            ..Default::default()
-        })
-        .with_writer(Writer {
-            target: WriterTarget::Stderr,
-            ..Default::default()
-        })
+        .with_writer(Writer::stdout())
+        .with_writer(Writer::stderr())
         .build();
+    assert_eq!(cfg.writers.len(), 2);
+}
+
+#[test]
+fn writer_chained_construction() {
+    let w = Writer::stderr()
+        .json()
+        .with_ansi(false)
+        .with_theme(Theme::monokai())
+        .with_time_format("%H:%M");
+    assert!(matches!(w.target, WriterTarget::Stderr));
+    assert!(matches!(w.format, Format::Json(_)));
+    assert!(!w.ansi);
+    assert_eq!(w.time_format.as_deref(), Some("%H:%M"));
+}
+
+#[cfg(feature = "file")]
+#[test]
+fn writer_file_constructor() {
+    let w = Writer::file("logs/app.log");
+    assert!(matches!(w.target, WriterTarget::File(_)));
+}
+
+#[test]
+fn format_shortcuts() {
+    assert!(matches!(Format::pretty(), Format::Pretty(_)));
+    assert!(matches!(Format::compact(), Format::Compact(_)));
+    assert!(matches!(Format::json(), Format::Json(_)));
+}
+
+#[test]
+fn config_from_level() {
+    let cfg: Config = Level::Debug.into();
+    assert_eq!(cfg.filter.as_directive(), "debug");
+    assert_eq!(cfg.writers.len(), 1);
+}
+
+#[test]
+fn config_from_writer() {
+    let cfg: Config = Writer::stderr().into();
+    assert_eq!(cfg.filter.as_directive(), "info");
+    assert!(matches!(cfg.writers[0].target, WriterTarget::Stderr));
+}
+
+#[test]
+fn config_from_writer_vec() {
+    let cfg: Config = vec![Writer::stdout(), Writer::stderr()].into();
     assert_eq!(cfg.writers.len(), 2);
 }
 

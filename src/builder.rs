@@ -1,13 +1,13 @@
 #[cfg(any(feature = "custom-async", feature = "native-async"))]
 use crate::config::AsyncMode;
-use crate::config::{ColorDepth, Config, Filter, Format, Style, Writer, WriterTarget};
+use crate::config::{ColorDepth, Config, Filter, Format, Writer, WriterTarget};
 use crate::fmt::Formatter;
 use std::io;
 #[cfg(feature = "file")]
 use std::path::PathBuf;
-use std::sync::Arc;
 use tracing_subscriber::Registry;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::layer::Layered;
 use tracing_subscriber::prelude::*;
 
@@ -48,112 +48,50 @@ fn detect_color_depth(target: &WriterTarget) -> ColorDepth {
     ColorDepth::NoColor
 }
 
-fn build_formatter(
+fn build_fmt_layer(
     writer: &Writer,
+    make_writer: BoxMakeWriter,
+    ansi: bool,
     color_depth: ColorDepth,
-    shared_handle: Option<Arc<arc_swap::ArcSwap<Style>>>,
-) -> Formatter {
-    let mut f = shared_handle
-        .as_ref()
-        .map_or_else(Formatter::new, |handle| {
-            Formatter::new_with_handle(handle.clone())
-        });
-    f = f
-        .with_style_config(writer.style)
-        .with_show_path(writer.show_path)
-        .with_show_spans(writer.show_spans)
-        .with_color_depth(color_depth);
-    if let Some(tf) = &writer.time_format {
-        f = f.with_time_format(tf.clone());
-    }
-    f
-}
-
-pub(crate) fn build_layer_with(
-    writer: &Writer,
-    shared_handle: Option<Arc<arc_swap::ArcSwap<Style>>>,
 ) -> BoxedLayer {
-    let color_depth = writer.color_depth.unwrap_or_else(|| {
-        if writer.ansi {
-            detect_color_depth(&writer.target)
-        } else {
-            ColorDepth::NoColor
-        }
-    });
-    let formatter = build_formatter(writer, color_depth, shared_handle);
-
-    let base = || {
-        tracing_subscriber::fmt::Layer::default()
-            .with_thread_ids(false)
-            .with_thread_names(false)
-            .with_span_events(FmtSpan::NONE)
-    };
-
-    macro_rules! write_to {
-        ($layer:expr $(,)?) => {{
-            match &writer.target {
-                WriterTarget::Stdout => $layer.with_writer(io::stdout).boxed(),
-                WriterTarget::Stderr => $layer.with_writer(io::stderr).boxed(),
-                #[cfg(feature = "custom-async")]
-                WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size }) => $layer
-                    .with_writer(writer::async_writer_for(
-                        writer::AsyncWriterTarget::Stdout,
-                        *buffer_size,
-                    ))
-                    .boxed(),
-                #[cfg(feature = "native-async")]
-                WriterTarget::AsyncStdout(AsyncMode::Native) => $layer
-                    .with_writer(writer::native_async_writer(
-                        writer::AsyncWriterTarget::Stdout,
-                    ))
-                    .boxed(),
-                #[cfg(feature = "custom-async")]
-                WriterTarget::AsyncStderr(AsyncMode::Custom { buffer_size }) => $layer
-                    .with_writer(writer::async_writer_for(
-                        writer::AsyncWriterTarget::Stderr,
-                        *buffer_size,
-                    ))
-                    .boxed(),
-                #[cfg(feature = "native-async")]
-                WriterTarget::AsyncStderr(AsyncMode::Native) => $layer
-                    .with_writer(writer::native_async_writer(
-                        writer::AsyncWriterTarget::Stderr,
-                    ))
-                    .boxed(),
-                #[cfg(feature = "file")]
-                WriterTarget::File(_) => $layer.with_writer(std::io::sink).boxed(),
-            }
-        }};
-    }
+    let base = tracing_subscriber::fmt::Layer::default()
+        .with_thread_ids(false)
+        .with_thread_names(false)
+        .with_span_events(FmtSpan::NONE)
+        .with_writer(make_writer)
+        .with_ansi(ansi);
 
     match &writer.format {
-        Format::Pretty(cfg) => write_to!(
-            base()
-                .pretty()
-                .with_target(cfg.target)
+        Format::Pretty(cfg) => base
+            .pretty()
+            .with_target(cfg.target)
+            .with_file(cfg.file)
+            .with_line_number(cfg.line_number)
+            .boxed(),
+        Format::Compact(cfg) => {
+            let mut formatter = Formatter::new()
+                .with_style_config(writer.style)
+                .with_show_path(writer.show_path)
+                .with_show_spans(writer.show_spans)
+                .with_color_depth(color_depth);
+            if let Some(tf) = &writer.time_format {
+                formatter = formatter.with_time_format(tf.clone());
+            }
+            base.with_target(cfg.target)
                 .with_file(cfg.file)
                 .with_line_number(cfg.line_number)
-                .with_ansi(writer.ansi)
-        ),
-        Format::Compact(cfg) => write_to!(
-            base()
-                .with_target(cfg.target)
-                .with_file(cfg.file)
-                .with_line_number(cfg.line_number)
-                .with_ansi(writer.ansi)
                 .event_format(formatter)
-        ),
-        Format::Json(cfg) => write_to!(
-            base()
-                .json()
-                .with_target(cfg.target)
-                .with_file(cfg.file)
-                .with_line_number(cfg.line_number)
-                .with_current_span(cfg.current_span)
-                .with_span_list(cfg.span_list)
-                .flatten_event(cfg.flatten_event)
-                .with_ansi(writer.ansi)
-        ),
+                .boxed()
+        }
+        Format::Json(cfg) => base
+            .json()
+            .with_target(cfg.target)
+            .with_file(cfg.file)
+            .with_line_number(cfg.line_number)
+            .with_current_span(cfg.current_span)
+            .with_span_list(cfg.span_list)
+            .flatten_event(cfg.flatten_event)
+            .boxed(),
     }
 }
 
@@ -163,56 +101,52 @@ pub(crate) fn build_layer_with(
 /// For production use, prefer [`init`] which handles file layers and
 /// reload guards automatically.
 pub fn build_layer(writer: &Writer) -> BoxedLayer {
-    build_layer_with(writer, None)
-}
+    let color_depth = writer.color_depth.unwrap_or_else(|| {
+        if writer.ansi {
+            detect_color_depth(&writer.target)
+        } else {
+            ColorDepth::NoColor
+        }
+    });
 
-#[cfg(feature = "file")]
-#[allow(clippy::single_call_fn)]
-fn build_file_layer(writer: &Writer, file_writer: writer::FileWriter) -> BoxedLayer {
-    let base = || {
-        tracing_subscriber::fmt::Layer::default()
-            .with_thread_ids(false)
-            .with_thread_names(false)
-            .with_span_events(FmtSpan::NONE)
+    let make_writer = match &writer.target {
+        WriterTarget::Stdout => BoxMakeWriter::new(io::stdout),
+        WriterTarget::Stderr => BoxMakeWriter::new(io::stderr),
+        #[cfg(feature = "custom-async")]
+        WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size }) => BoxMakeWriter::new(
+            writer::async_writer_for(writer::AsyncWriterTarget::Stdout, *buffer_size),
+        ),
+        #[cfg(feature = "native-async")]
+        WriterTarget::AsyncStdout(AsyncMode::Native) => BoxMakeWriter::new(
+            writer::native_async_writer(writer::AsyncWriterTarget::Stdout),
+        ),
+        #[cfg(feature = "custom-async")]
+        WriterTarget::AsyncStderr(AsyncMode::Custom { buffer_size }) => BoxMakeWriter::new(
+            writer::async_writer_for(writer::AsyncWriterTarget::Stderr, *buffer_size),
+        ),
+        #[cfg(feature = "native-async")]
+        WriterTarget::AsyncStderr(AsyncMode::Native) => BoxMakeWriter::new(
+            writer::native_async_writer(writer::AsyncWriterTarget::Stderr),
+        ),
+        #[cfg(feature = "file")]
+        WriterTarget::File(_) => BoxMakeWriter::new(io::sink),
     };
 
-    match &writer.format {
-        Format::Pretty(cfg) => base()
-            .pretty()
-            .with_target(cfg.target)
-            .with_file(cfg.file)
-            .with_line_number(cfg.line_number)
-            .with_ansi(false)
-            .with_writer(file_writer)
-            .boxed(),
-        Format::Compact(cfg) => base()
-            .with_target(cfg.target)
-            .with_file(cfg.file)
-            .with_line_number(cfg.line_number)
-            .with_ansi(false)
-            .event_format(build_formatter(writer, ColorDepth::NoColor, None))
-            .with_writer(file_writer)
-            .boxed(),
-        Format::Json(cfg) => base()
-            .json()
-            .with_target(cfg.target)
-            .with_file(cfg.file)
-            .with_line_number(cfg.line_number)
-            .with_current_span(cfg.current_span)
-            .with_span_list(cfg.span_list)
-            .flatten_event(cfg.flatten_event)
-            .with_ansi(false)
-            .with_writer(file_writer)
-            .boxed(),
-    }
+    build_fmt_layer(writer, make_writer, writer.ansi, color_depth)
 }
 
+/// Initialize the global tracing subscriber.
+///
+/// Accepts anything convertible into a [`Config`]: a [`Level`](crate::Level),
+/// a [`Filter`], a single [`Writer`], a `Vec<Writer>`, a
+/// [`ConfigBuilder`](crate::ConfigBuilder), or a full [`Config`].
+///
+/// ```no_run
+/// let _guard = acta::init(acta::Level::Debug)?;
+/// # Ok::<(), acta::ActaError>(())
+/// ```
 pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
     let Config { filter, writers } = config.into();
-    let shared_style = Arc::new(arc_swap::ArcSwap::new(Arc::new(
-        writers.first().map_or_else(Style::default, |w| w.style),
-    )));
-
     let mut layers: Vec<BoxedLayer> = Vec::with_capacity(writers.len());
 
     #[cfg(feature = "file")]
@@ -222,23 +156,21 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
 
     for writer in writers {
         #[cfg(feature = "file")]
-        let eligible = !matches!(writer.target, WriterTarget::File(_));
-        #[cfg(not(feature = "file"))]
-        let eligible = true;
-
-        let handle = eligible.then(|| shared_style.clone());
-
-        #[cfg(feature = "file")]
-        if let WriterTarget::File(ref config) = writer.target {
-            let (file_w, guard, resolved_path) =
-                writer::file::build_file_layer(&config.path, config.rotation)?;
+        if let WriterTarget::File(ref file_config) = writer.target {
+            let (file_writer, guard, resolved_path) =
+                writer::file::build_file_layer(&file_config.path, file_config.rotation)?;
             file_guards.push(guard);
             log_paths.push(resolved_path);
-            layers.push(build_file_layer(&writer, file_w));
+            layers.push(build_fmt_layer(
+                &writer,
+                BoxMakeWriter::new(file_writer),
+                false,
+                ColorDepth::NoColor,
+            ));
             continue;
         }
 
-        layers.push(build_layer_with(&writer, handle));
+        layers.push(build_layer(&writer));
     }
 
     let env_filter = tracing_subscriber::EnvFilter::try_new(filter.as_directive())?;
@@ -252,7 +184,6 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
     Ok(TracingGuard {
         raw,
         filter,
-        style: shared_style,
         #[cfg(feature = "file")]
         worker_guards: file_guards,
         #[cfg(feature = "file")]
@@ -264,7 +195,6 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
 pub struct TracingGuard {
     pub(crate) raw: ReloadHandle,
     pub(crate) filter: Filter,
-    pub(crate) style: Arc<arc_swap::ArcSwap<Style>>,
     #[cfg(feature = "file")]
     pub(crate) worker_guards: Vec<writer::LogHandle>,
     #[cfg(feature = "file")]
@@ -284,12 +214,6 @@ impl std::fmt::Debug for TracingGuard {
 }
 
 impl TracingGuard {
-    pub fn with_style(&mut self, f: impl FnOnce(&mut Style)) {
-        let mut style = **self.style.load();
-        f(&mut style);
-        self.style.store(Arc::new(style));
-    }
-
     pub fn set_filter(&mut self, filter: Filter) -> crate::Result<()> {
         let env_filter = tracing_subscriber::EnvFilter::try_new(filter.as_directive())?;
         self.raw.modify(|f| *f = env_filter)?;

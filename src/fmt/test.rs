@@ -1,8 +1,11 @@
 use compact_str::CompactString;
+use std::sync::{Arc, Mutex};
 
 use super::visitor::EventVisitor;
 use super::*;
 use smallvec::SmallVec;
+use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::layer::SubscriberExt;
 
 #[test]
 fn formatter_defaults() {
@@ -401,4 +404,116 @@ fn theme_default_equals_acta() {
         format!("{:?}", Theme::default()),
         format!("{:?}", Theme::acta())
     );
+}
+
+struct CaptureLayer<F>(F);
+
+impl<S, F> tracing_subscriber::Layer<S> for CaptureLayer<F>
+where
+    S: Subscriber,
+    F: Fn(&Event<'_>) + Send + Sync + 'static,
+{
+    fn on_event(&self, event: &Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        (self.0)(event);
+    }
+}
+
+/// A `tracing::Event` is only observable inside a live subscriber.
+fn capture_output(
+    format: impl Fn(&mut Writer<'_>, &Event<'_>) -> fmt::Result + Send + Sync + 'static,
+    emit: impl FnOnce(),
+) -> String {
+    let out = Arc::new(Mutex::new(String::new()));
+    let sink = out.clone();
+    let layer = CaptureLayer(move |event: &Event<'_>| {
+        let mut buf = String::new();
+        format(&mut Writer::new(&mut buf), event).expect("formatting failed");
+        *sink.lock().expect("capture lock poisoned") = buf;
+    });
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), emit);
+    out.lock().expect("capture lock poisoned").clone()
+}
+
+#[test]
+fn format_path_section_output_contains_path_and_arrow() {
+    let fmt = Formatter::new().with_path_width(40);
+    let output = capture_output(
+        move |writer, event| {
+            fmt.format_path_section(writer, event, &Theme::acta(), &Icons::UNICODE)
+        },
+        || tracing::event!(Level::INFO, "probe"),
+    );
+
+    assert!(
+        output.contains("fmt/test.rs"),
+        "expected output to contain file path, got: {output}"
+    );
+    assert!(
+        output.contains('>'),
+        "expected output to contain arrow icon, got: {output}"
+    );
+}
+
+#[test]
+fn write_time_outputs_formatted_time() {
+    let fmt = Formatter::new();
+    let theme = Theme::acta();
+
+    let mut buf = String::new();
+    let result = fmt.write_time(&mut Writer::new(&mut buf), &theme);
+
+    assert!(result.is_ok());
+    assert!(!buf.is_empty(), "expected non-empty time output");
+    assert!(
+        buf.contains(':'),
+        "expected time to contain colon separator"
+    );
+}
+
+#[test]
+fn write_time_custom_format() {
+    let fmt = Formatter::new().with_time_format("%Y-%m-%d");
+    let theme = Theme::acta();
+
+    let mut buf = String::new();
+    let result = fmt.write_time(&mut Writer::new(&mut buf), &theme);
+
+    assert!(result.is_ok());
+    assert!(buf.contains('-'), "expected date format with dashes");
+}
+
+#[test]
+fn format_fields_outputs_message() {
+    let fmt = Formatter::new();
+    let output = capture_output(
+        move |writer, event| fmt.format_fields(writer, event, &Theme::acta()),
+        || tracing::event!(Level::INFO, "hello world"),
+    );
+
+    assert!(
+        output.contains("hello world"),
+        "expected output to contain message, got: {output}"
+    );
+}
+
+#[test]
+fn format_fields_outputs_key_value_pairs() {
+    let fmt = Formatter::new().with_color_depth(ColorDepth::NoColor);
+    let output = capture_output(
+        move |writer, event| fmt.format_fields(writer, event, &Theme::acta()),
+        || tracing::event!(Level::INFO, user = "alice", count = 42),
+    );
+
+    assert_eq!(output, "user=alice count=42");
+}
+
+#[test]
+fn format_fields_with_message_and_fields() {
+    let fmt = Formatter::new().with_color_depth(ColorDepth::NoColor);
+    let output = capture_output(
+        move |writer, event| fmt.format_fields(writer, event, &Theme::acta()),
+        || tracing::event!(Level::INFO, key = "value", "test message"),
+    );
+
+    assert_eq!(output, "test message key=value");
 }
