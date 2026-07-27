@@ -2,8 +2,8 @@ pub use crate::builder::{TracingGuard, init};
 #[cfg(any(feature = "custom-async", feature = "native-async"))]
 pub use crate::config::AsyncMode;
 pub use crate::config::{
-    Config, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style, Theme, Writer,
-    WriterTarget,
+    Config, ConfigBuilder, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style,
+    Theme, Writer, WriterTarget,
 };
 pub use crate::fmt::Formatter;
 #[cfg(any(feature = "custom-async", feature = "native-async"))]
