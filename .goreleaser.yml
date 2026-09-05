@@ -5,7 +5,6 @@ project_name: acta
 before:
   hooks:
     - rustup default stable
-    - python3 scripts/ensure-tool.py cargo-zigbuild -- pip3 install cargo-zigbuild
     - python3 scripts/cargo-fmt.py
     - python3 scripts/cargo-clippy.py
     - python3 scripts/cargo-test.py

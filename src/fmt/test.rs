@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 use compact_str::CompactString;
 use std::sync::{Arc, Mutex};
 

@@ -41,8 +41,6 @@ pub use crate::writer::{LogHandle, resolve_log_path, rotate_log_file};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ActaError {
-    #[error("log filter state lock poisoned")]
-    LockPoisoned,
     #[error("invalid filter directive: {0}")]
     InvalidDirective(#[from] tracing_subscriber::filter::ParseError),
     #[error("failed to reload filter: {0}")]

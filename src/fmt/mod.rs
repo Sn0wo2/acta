@@ -5,8 +5,6 @@ use chrono::Utc;
 use compact_str::{CompactString, format_compact};
 use owo_colors::Rgb;
 use owo_colors::Style as OwoStyle;
-use smallvec::SmallVec;
-
 use std::fmt;
 
 use tracing::{Event, Level, Subscriber};
@@ -265,8 +263,8 @@ impl Formatter {
             return Ok(());
         };
 
-        let spans: SmallVec<[_; 8]> = scope.from_root().collect();
-        if spans.is_empty() {
+        let mut iter = scope.from_root().peekable();
+        if iter.peek().is_none() {
             return Ok(());
         }
 
@@ -276,8 +274,6 @@ impl Formatter {
         let text_dimmed = self.themed_dimmed(theme.text);
 
         write!(writer, " {}", accent.style("["))?;
-
-        let mut iter = spans.iter().peekable();
 
         while let Some(span) = iter.next() {
             let is_last = iter.peek().is_none();
