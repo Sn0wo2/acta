@@ -9,8 +9,6 @@ dependencies = [
  "acta-build",
  "ansi_colours",
  "anstyle-lossy",
- "arc-swap",
- "bytes",
  "chrono",
  "compact_str",
  "flate2",
@@ -90,15 +88,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9ca7d0f520afcd6d817970d0b2d5fd7c630c75e7783cae046b8b8a783c5befa"
 dependencies = [
  "anstyle",
-]
-
-[[package]]
-name = "arc-swap"
-version = "1.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
-dependencies = [
- "rustversion",
 ]
 
 [[package]]

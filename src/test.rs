@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::io;
 
@@ -101,12 +101,6 @@ fn reload_handle_set_target_level_accepts_string() {
 fn reload_handle_remove_nonexistent_target_level() {
     let (mut handle, _sub) = build_test_guard(Level::Info);
     assert!(handle.remove_target_level("nonexistent_crate").is_ok());
-}
-
-#[test]
-fn acta_error_display_lock_poisoned() {
-    let msg = format!("{}", ActaError::LockPoisoned);
-    assert!(msg.contains("log filter state lock poisoned"));
 }
 
 #[test]

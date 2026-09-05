@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,14 +12,14 @@ const DROP_WARN_INTERVAL: u64 = 1024;
 
 #[derive(Clone, Debug)]
 pub struct AsyncWriter {
-    sender: mpsc::Sender<Bytes>,
+    sender: mpsc::Sender<Vec<u8>>,
     capacity: usize,
     dropped: Arc<AtomicU64>,
 }
 
 impl Write for AsyncWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self.sender.try_send(Bytes::copy_from_slice(buf)) {
+        match self.sender.try_send(buf.to_vec()) {
             Ok(_) => Ok(buf.len()),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
@@ -57,7 +56,7 @@ impl MakeWriter<'_> for AsyncWriter {
 /// writer whose channel holds up to `capacity` queued log messages before new
 /// ones are dropped.
 pub fn async_writer_for(target: AsyncWriterTarget, capacity: usize) -> AsyncWriter {
-    let (sender, mut receiver) = mpsc::channel::<Bytes>(capacity);
+    let (sender, mut receiver) = mpsc::channel::<Vec<u8>>(capacity);
 
     tokio::spawn(async move {
         let writer: &mut (dyn AsyncWrite + Unpin + Send) = match target {

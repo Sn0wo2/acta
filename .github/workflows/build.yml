@@ -46,7 +46,9 @@ jobs:
           key: ${{ runner.os }}-cargo-tool-zigbuild-v1
 
       - name: Install cargo-zigbuild
-        run: python3 scripts/ensure-tool.py cargo-zigbuild -- pip3 install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
