@@ -2,6 +2,7 @@
 name = "acta"
 version.workspace = true
 edition = "2024"
+rust-version = "1.85"
 description = "Make Tracing Great Again."
 repository = "https://github.com/Sn0wo2/acta"
 license = "Apache-2.0"

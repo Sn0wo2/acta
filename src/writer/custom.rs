@@ -23,7 +23,7 @@ impl Write for AsyncWriter {
             Ok(_) => Ok(buf.len()),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
-                if dropped == 1 || dropped.is_multiple_of(DROP_WARN_INTERVAL) {
+                if dropped == 1 || (DROP_WARN_INTERVAL != 0 && dropped % DROP_WARN_INTERVAL == 0) {
                     let _unused = writeln!(
                         std::io::stderr(),
                         "acta: async writer buffer full ({}), {dropped} log messages dropped so far",
