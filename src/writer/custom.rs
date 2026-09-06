@@ -13,7 +13,6 @@ const DROP_WARN_INTERVAL: u64 = 1024;
 #[derive(Clone, Debug)]
 pub struct AsyncWriter {
     sender: mpsc::Sender<Vec<u8>>,
-    capacity: usize,
     dropped: Arc<AtomicU64>,
 }
 
@@ -23,11 +22,11 @@ impl Write for AsyncWriter {
             Ok(_) => Ok(buf.len()),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
-                if dropped == 1 || (DROP_WARN_INTERVAL != 0 && dropped % DROP_WARN_INTERVAL == 0) {
+                if dropped == 1 || dropped % DROP_WARN_INTERVAL == 0 {
                     let _unused = writeln!(
                         std::io::stderr(),
                         "acta: async writer buffer full ({}), {dropped} log messages dropped so far",
-                        self.capacity
+                        self.sender.max_capacity()
                     );
                 }
                 Ok(buf.len())
@@ -73,7 +72,6 @@ pub fn async_writer_for(target: AsyncWriterTarget, capacity: usize) -> AsyncWrit
 
     AsyncWriter {
         sender,
-        capacity,
         dropped: Arc::new(AtomicU64::new(0)),
     }
 }

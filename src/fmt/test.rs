@@ -12,7 +12,6 @@ use tracing_subscriber::layer::SubscriberExt;
 #[test]
 fn formatter_defaults() {
     let fmt = Formatter::new();
-    assert_eq!(fmt.time_format, "%H:%M:%S");
     assert_eq!(fmt.path_width, DEFAULT_PATH_WIDTH);
     assert!(fmt.show_path);
     assert!(fmt.show_spans);
@@ -27,7 +26,6 @@ fn formatter_builder() {
         .with_show_spans(false)
         .with_theme(Theme::monokai());
 
-    assert_eq!(fmt.time_format, "%Y-%m-%d %H:%M:%S");
     assert_eq!(fmt.path_width, 40);
     assert!(!fmt.show_path);
     assert!(!fmt.show_spans);
@@ -280,9 +278,9 @@ fn event_visitor_records_other_fields_as_pairs() {
     assert!(visitor.message.is_none());
     assert_eq!(
         visitor.fields,
-        SmallVec::<[(CompactString, CompactString); 4]>::from_vec(vec![
-            (CompactString::from("user"), CompactString::from("alice")),
-            (CompactString::from("count"), CompactString::from("42"))
+        SmallVec::<[(&'static str, CompactString); 4]>::from_vec(vec![
+            ("user", CompactString::from("alice")),
+            ("count", CompactString::from("42"))
         ])
     );
 }
@@ -303,9 +301,9 @@ fn event_visitor_order_preserved_message_extracted() {
     assert_eq!(visitor.message, Some(CompactString::from("the message")));
     assert_eq!(
         visitor.fields,
-        SmallVec::<[(CompactString, CompactString); 4]>::from_vec(vec![
-            (CompactString::from("x"), CompactString::from("1")),
-            (CompactString::from("y"), CompactString::from("2"))
+        SmallVec::<[(&'static str, CompactString); 4]>::from_vec(vec![
+            ("x", CompactString::from("1")),
+            ("y", CompactString::from("2"))
         ])
     );
 }
@@ -482,6 +480,17 @@ fn write_time_custom_format() {
 
     assert!(result.is_ok());
     assert!(buf.contains('-'), "expected date format with dashes");
+}
+
+#[test]
+fn write_time_invalid_format_returns_error() {
+    let fmt = Formatter::new().with_time_format("%Q");
+    let theme = Theme::acta();
+    let mut buf = String::new();
+
+    let result = fmt.write_time(&mut Writer::new(&mut buf), &theme);
+
+    assert!(result.is_err());
 }
 
 #[test]

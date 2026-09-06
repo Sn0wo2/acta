@@ -1,9 +1,8 @@
-use crate::color::AnsiStyle;
+use crate::color::rgb_to_owo;
 use crate::config::ColorDepth;
 use crate::config::{Icons, LevelLabels, Style, Theme};
 use chrono::Local;
 use compact_str::{CompactString, format_compact};
-use owo_colors::Rgb;
 use owo_colors::Style as OwoStyle;
 use std::fmt;
 
@@ -21,9 +20,7 @@ const DEFAULT_PATH_WIDTH: usize = include!(concat!(env!("OUT_DIR"), "/path_width
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Formatter {
-    pub(crate) time_format: String,
-    /// Pre-parsed `time_format`; `None` falls back to runtime parsing.
-    pub(crate) time_items: Option<Vec<chrono::format::Item<'static>>>,
+    pub(crate) time_items: Vec<chrono::format::Item<'static>>,
     pub(crate) path_width: usize,
     pub(crate) show_path: bool,
     pub(crate) show_spans: bool,
@@ -41,7 +38,6 @@ impl Formatter {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            time_format: String::from("%H:%M:%S"),
             time_items: Self::parse_time_items("%H:%M:%S"),
             path_width: DEFAULT_PATH_WIDTH,
             show_path: true,
@@ -63,24 +59,22 @@ impl Formatter {
         self
     }
 
-    fn update_style(mut self, f: impl FnOnce(&mut Style)) -> Self {
-        f(&mut self.style);
+    #[must_use]
+    pub const fn with_icons(mut self, icons: Icons) -> Self {
+        self.style.icons = icons;
         self
     }
 
     #[must_use]
-    pub fn with_icons(self, icons: Icons) -> Self {
-        self.update_style(|s| s.icons = icons)
+    pub const fn with_labels(mut self, labels: LevelLabels) -> Self {
+        self.style.labels = labels;
+        self
     }
 
     #[must_use]
-    pub fn with_labels(self, labels: LevelLabels) -> Self {
-        self.update_style(|s| s.labels = labels)
-    }
-
-    #[must_use]
-    pub fn with_theme(self, theme: Theme) -> Self {
-        self.update_style(|s| s.theme = theme)
+    pub const fn with_theme(mut self, theme: Theme) -> Self {
+        self.style.theme = theme;
+        self
     }
 
     #[must_use]
@@ -98,23 +92,23 @@ impl Formatter {
     /// Sets the timestamp format. Timestamps use the local system timezone.
     #[must_use]
     pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
-        self.time_format = fmt.into();
-        self.time_items = Self::parse_time_items(&self.time_format);
+        let fmt = fmt.into();
+        self.time_items = Self::parse_time_items(&fmt);
         self
     }
 
-    fn parse_time_items(fmt: &str) -> Option<Vec<chrono::format::Item<'static>>> {
+    fn parse_time_items(fmt: &str) -> Vec<chrono::format::Item<'static>> {
         chrono::format::StrftimeItems::new(fmt)
-            .parse_to_owned()
-            .ok()
+            .map(chrono::format::Item::to_owned)
+            .collect()
     }
 
     fn themed(&self, (r, g, b): (u8, u8, u8)) -> OwoStyle {
-        OwoStyle::from(AnsiStyle::new(Rgb(r, g, b), self.color_depth))
+        rgb_to_owo((r, g, b), self.color_depth, false)
     }
 
     fn themed_dimmed(&self, (r, g, b): (u8, u8, u8)) -> OwoStyle {
-        OwoStyle::from(AnsiStyle::new(Rgb(r, g, b), self.color_depth).dimmed())
+        rgb_to_owo((r >> 2, g >> 2, b >> 2), self.color_depth, false)
     }
 
     #[must_use]
@@ -184,14 +178,11 @@ impl Formatter {
     fn write_time(&self, writer: &mut Writer<'_>, theme: &Theme) -> fmt::Result {
         let now = Local::now();
         let style = self.themed(theme.text);
-        match &self.time_items {
-            Some(items) => write!(
-                writer,
-                "{}",
-                style.style(now.format_with_items(items.iter()))
-            ),
-            None => write!(writer, "{}", style.style(now.format(&self.time_format))),
-        }
+        write!(
+            writer,
+            "{}",
+            style.style(now.format_with_items(self.time_items.iter()))
+        )
     }
 
     fn format_path_section(
@@ -321,8 +312,7 @@ where
             Level::TRACE => (config.theme.trace, config.labels.trace),
         };
 
-        let on_bg =
-            OwoStyle::from(AnsiStyle::new(Rgb(color.0, color.1, color.2), self.color_depth).on());
+        let on_bg = rgb_to_owo(color, self.color_depth, true);
         let bracket_style = if config.icons.name == "nerd" {
             self.themed(color)
         } else {

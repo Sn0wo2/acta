@@ -6,16 +6,11 @@ use tracing::field::Field;
 #[derive(Default)]
 pub(super) struct EventVisitor {
     pub(crate) message: Option<CompactString>,
-    pub(crate) fields: SmallVec<[(CompactString, CompactString); 4]>,
+    pub(crate) fields: SmallVec<[(&'static str, CompactString); 4]>,
 }
 
 impl EventVisitor {
-    pub(super) fn record_field(
-        &mut self,
-        name: impl Into<CompactString>,
-        value: impl Into<CompactString>,
-    ) {
-        let name = name.into();
+    pub(super) fn record_field(&mut self, name: &'static str, value: impl Into<CompactString>) {
         if name == "msg" || name == "message" {
             self.message = Some(value.into());
             return;
