@@ -15,8 +15,8 @@ pub use builder::{TracingGuard, build_layer, init};
 #[cfg(feature = "file")]
 pub use config::FileConfig;
 pub use config::{
-    ColorDepth, Config, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style,
-    Theme, Writer, WriterTarget,
+    ColorDepth, Config, ConfigBuilder, Filter, Format, Icons, LayerConfig, Level, LevelLabels,
+    Rotation, Style, Theme, Writer, WriterTarget,
 };
 pub use fmt::Formatter;
 
@@ -41,8 +41,6 @@ pub use crate::writer::{LogHandle, resolve_log_path, rotate_log_file};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ActaError {
-    #[error("log filter state lock poisoned")]
-    LockPoisoned,
     #[error("invalid filter directive: {0}")]
     InvalidDirective(#[from] tracing_subscriber::filter::ParseError),
     #[error("failed to reload filter: {0}")]

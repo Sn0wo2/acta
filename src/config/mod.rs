@@ -381,9 +381,23 @@ pub enum Format {
     Json(LayerConfig),
 }
 
+impl Format {
+    pub const fn pretty() -> Self {
+        Self::Pretty(LayerConfig::pretty())
+    }
+
+    pub const fn compact() -> Self {
+        Self::Compact(LayerConfig::compact())
+    }
+
+    pub const fn json() -> Self {
+        Self::Json(LayerConfig::json())
+    }
+}
+
 impl Default for Format {
     fn default() -> Self {
-        Self::Compact(LayerConfig::compact())
+        Self::compact()
     }
 }
 
@@ -616,6 +630,118 @@ impl Default for Writer {
     }
 }
 
+impl Writer {
+    #[must_use]
+    pub fn stdout() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn stderr() -> Self {
+        Self::default().with_target(WriterTarget::Stderr)
+    }
+
+    #[cfg(feature = "file")]
+    #[must_use]
+    pub fn file(path: impl Into<PathBuf>) -> Self {
+        Self::default().with_target(WriterTarget::File(FileConfig::new(path)))
+    }
+
+    #[cfg(any(feature = "custom-async", feature = "native-async"))]
+    #[must_use]
+    pub fn async_stdout() -> Self {
+        Self::default().with_target(WriterTarget::AsyncStdout(AsyncMode::default()))
+    }
+
+    #[cfg(any(feature = "custom-async", feature = "native-async"))]
+    #[must_use]
+    pub fn async_stderr() -> Self {
+        Self::default().with_target(WriterTarget::AsyncStderr(AsyncMode::default()))
+    }
+
+    #[must_use]
+    pub fn with_target(mut self, target: WriterTarget) -> Self {
+        self.target = target;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_format(mut self, format: Format) -> Self {
+        self.format = format;
+        self
+    }
+
+    #[must_use]
+    pub const fn pretty(self) -> Self {
+        self.with_format(Format::pretty())
+    }
+
+    #[must_use]
+    pub const fn compact(self) -> Self {
+        self.with_format(Format::compact())
+    }
+
+    #[must_use]
+    pub const fn json(self) -> Self {
+        self.with_format(Format::json())
+    }
+
+    #[must_use]
+    pub const fn with_ansi(mut self, ansi: bool) -> Self {
+        self.ansi = ansi;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_color_depth(mut self, depth: ColorDepth) -> Self {
+        self.color_depth = Some(depth);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_show_path(mut self, show: bool) -> Self {
+        self.show_path = show;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_show_spans(mut self, show: bool) -> Self {
+        self.show_spans = show;
+        self
+    }
+
+    /// Sets the timestamp format. Timestamps use the local system timezone.
+    #[must_use]
+    pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
+        self.time_format = Some(fmt.into());
+        self
+    }
+
+    #[must_use]
+    pub const fn with_style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_theme(mut self, theme: Theme) -> Self {
+        self.style.theme = theme;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_icons(mut self, icons: Icons) -> Self {
+        self.style.icons = icons;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_labels(mut self, labels: LevelLabels) -> Self {
+        self.style.labels = labels;
+        self
+    }
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -637,6 +763,39 @@ impl Default for Config {
         Self {
             filter: Filter::default(),
             writers: vec![Writer::default()],
+        }
+    }
+}
+
+impl From<Level> for Config {
+    fn from(level: Level) -> Self {
+        Filter::new(level).into()
+    }
+}
+
+impl From<Filter> for Config {
+    fn from(filter: Filter) -> Self {
+        Self {
+            filter,
+            ..Self::default()
+        }
+    }
+}
+
+impl From<Writer> for Config {
+    fn from(writer: Writer) -> Self {
+        Self {
+            writers: vec![writer],
+            ..Self::default()
+        }
+    }
+}
+
+impl From<Vec<Writer>> for Config {
+    fn from(writers: Vec<Writer>) -> Self {
+        Self {
+            writers,
+            ..Self::default()
         }
     }
 }

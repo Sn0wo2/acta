@@ -1,10 +1,9 @@
 use crate::ColorDepth;
 use anstyle_lossy::palette::Palette;
 use anstyle_lossy::rgb_to_ansi;
-use owo_colors::AnsiColors;
-use owo_colors::Rgb;
 use owo_colors::Style as OwoStyle;
 use owo_colors::XtermColors;
+use owo_colors::{AnsiColors, DynColors};
 
 const ANSI16_TABLE: [AnsiColors; 16] = [
     AnsiColors::Black,
@@ -25,65 +24,25 @@ const ANSI16_TABLE: [AnsiColors; 16] = [
     AnsiColors::BrightWhite,
 ];
 
-#[derive(Clone, Copy, Debug)]
-pub struct Styled {
-    rgb: Rgb,
-    depth: ColorDepth,
-    on: bool,
-}
+pub(crate) fn rgb_to_owo((r, g, b): (u8, u8, u8), depth: ColorDepth, background: bool) -> OwoStyle {
+    let style = OwoStyle::new();
+    let color = match depth {
+        ColorDepth::TrueColor => Some(DynColors::Rgb(r, g, b)),
+        ColorDepth::Ansi256 => Some(DynColors::Xterm(XtermColors::from(
+            ansi_colours::ansi256_from_rgb((r, g, b)),
+        ))),
+        ColorDepth::Ansi16 => Some(DynColors::Ansi(
+            ANSI16_TABLE
+                .get(rgb_to_ansi((r, g, b).into(), Palette::default()) as usize)
+                .copied()
+                .unwrap_or(AnsiColors::White),
+        )),
+        ColorDepth::NoColor => None,
+    };
 
-impl Styled {
-    pub(crate) const fn new(rgb: Rgb, depth: ColorDepth) -> Self {
-        Self {
-            rgb,
-            depth,
-            on: false,
-        }
-    }
-
-    pub(crate) const fn dimmed(mut self) -> Self {
-        self.rgb = Rgb(self.rgb.0 >> 2, self.rgb.1 >> 2, self.rgb.2 >> 2);
-        self
-    }
-
-    pub(crate) const fn on(mut self) -> Self {
-        self.on = true;
-        self
-    }
-}
-
-impl From<Styled> for OwoStyle {
-    fn from(s: Styled) -> Self {
-        let style = Self::new();
-        match s.depth {
-            ColorDepth::TrueColor => {
-                if s.on {
-                    return style.on_truecolor(s.rgb.0, s.rgb.1, s.rgb.2);
-                }
-                style.truecolor(s.rgb.0, s.rgb.1, s.rgb.2)
-            }
-            ColorDepth::Ansi256 => {
-                let ansi =
-                    XtermColors::from(ansi_colours::ansi256_from_rgb((s.rgb.0, s.rgb.1, s.rgb.2)));
-                if s.on {
-                    return style.on_color(ansi);
-                }
-                style.color(ansi)
-            }
-            ColorDepth::Ansi16 => {
-                let ansi = ANSI16_TABLE
-                    .get(
-                        rgb_to_ansi((s.rgb.0, s.rgb.1, s.rgb.2).into(), Palette::default())
-                            as usize,
-                    )
-                    .copied()
-                    .unwrap_or(AnsiColors::White);
-                if s.on {
-                    return style.on_color(ansi);
-                }
-                style.color(ansi)
-            }
-            ColorDepth::NoColor => style,
-        }
+    match color {
+        Some(color) if background => style.on_color(color),
+        Some(color) => style.color(color),
+        None => style,
     }
 }

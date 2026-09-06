@@ -2,6 +2,7 @@
 name = "acta"
 version.workspace = true
 edition = "2024"
+rust-version = "1.85"
 description = "Make Tracing Great Again."
 repository = "https://github.com/Sn0wo2/acta"
 license = "Apache-2.0"
@@ -59,7 +60,6 @@ tracing-subscriber = { version = "0.3", features = [
 supports-color = "3"
 ansi_colours = "1.2"
 anstyle-lossy = "1.1"
-arc-swap = "1.7.1"
 compact_str = { version = "0.10", features = ["serde"] }
 
 [build-dependencies]
@@ -182,7 +182,6 @@ rc_mutex = "warn"
 redundant_clone = "warn"
 redundant_closure_for_method_calls = "warn"
 redundant_else = "warn"
-redundant_pub_crate = "warn"
 redundant_type_annotations = "warn"
 ref_as_ptr = "warn"
 ref_binding_to_reference = "warn"

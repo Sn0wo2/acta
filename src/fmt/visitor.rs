@@ -1,4 +1,4 @@
-use compact_str::CompactString;
+use compact_str::{CompactString, format_compact};
 use smallvec::SmallVec;
 use std::fmt::Debug;
 use tracing::field::Field;
@@ -6,16 +6,11 @@ use tracing::field::Field;
 #[derive(Default)]
 pub(super) struct EventVisitor {
     pub(crate) message: Option<CompactString>,
-    pub(crate) fields: SmallVec<[(CompactString, CompactString); 4]>,
+    pub(crate) fields: SmallVec<[(&'static str, CompactString); 4]>,
 }
 
 impl EventVisitor {
-    pub(super) fn record_field(
-        &mut self,
-        name: impl Into<CompactString>,
-        value: impl Into<CompactString>,
-    ) {
-        let name = name.into();
+    pub(super) fn record_field(&mut self, name: &'static str, value: impl Into<CompactString>) {
         if name == "msg" || name == "message" {
             self.message = Some(value.into());
             return;
@@ -26,22 +21,22 @@ impl EventVisitor {
 
 impl tracing::field::Visit for EventVisitor {
     fn record_i64(&mut self, field: &Field, value: i64) {
-        self.record_field(field.name(), value.to_string());
+        self.record_field(field.name(), format_compact!("{value}"));
     }
 
     fn record_u64(&mut self, field: &Field, value: u64) {
-        self.record_field(field.name(), value.to_string());
+        self.record_field(field.name(), format_compact!("{value}"));
     }
 
     fn record_bool(&mut self, field: &Field, value: bool) {
-        self.record_field(field.name(), value.to_string());
+        self.record_field(field.name(), format_compact!("{value}"));
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.record_field(field.name(), value.to_owned());
+        self.record_field(field.name(), value);
     }
 
     fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        self.record_field(field.name(), format!("{value:?}"));
+        self.record_field(field.name(), format_compact!("{value:?}"));
     }
 }

@@ -1,14 +1,19 @@
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncWrite, AsyncWriteExt, stderr, stdout};
 use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 
 use super::AsyncWriterTarget;
 
+/// Per-message warnings would hammer stderr exactly when the writer is saturated.
+const DROP_WARN_INTERVAL: u64 = 1024;
+
 #[derive(Clone, Debug)]
 pub struct AsyncWriter {
     sender: mpsc::Sender<Vec<u8>>,
-    capacity: usize,
+    dropped: Arc<AtomicU64>,
 }
 
 impl Write for AsyncWriter {
@@ -16,11 +21,14 @@ impl Write for AsyncWriter {
         match self.sender.try_send(buf.to_vec()) {
             Ok(_) => Ok(buf.len()),
             Err(mpsc::error::TrySendError::Full(_)) => {
-                let _unused = writeln!(
-                    std::io::stderr(),
-                    "acta: async writer buffer full ({}), dropping log message",
-                    self.capacity
-                );
+                let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                if dropped == 1 || dropped % DROP_WARN_INTERVAL == 0 {
+                    let _unused = writeln!(
+                        std::io::stderr(),
+                        "acta: async writer buffer full ({}), {dropped} log messages dropped so far",
+                        self.sender.max_capacity()
+                    );
+                }
                 Ok(buf.len())
             }
             Err(mpsc::error::TrySendError::Closed(_)) => Err(std::io::Error::new(
@@ -62,5 +70,8 @@ pub fn async_writer_for(target: AsyncWriterTarget, capacity: usize) -> AsyncWrit
         }
     });
 
-    AsyncWriter { sender, capacity }
+    AsyncWriter {
+        sender,
+        dropped: Arc::new(AtomicU64::new(0)),
+    }
 }
