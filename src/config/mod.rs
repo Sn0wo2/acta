@@ -710,6 +710,7 @@ impl Writer {
         self
     }
 
+    /// Sets the timestamp format. Timestamps use the local system timezone.
     #[must_use]
     pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
         self.time_format = Some(fmt.into());

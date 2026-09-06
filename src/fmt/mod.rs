@@ -1,7 +1,7 @@
 use crate::color::AnsiStyle;
 use crate::config::ColorDepth;
 use crate::config::{Icons, LevelLabels, Style, Theme};
-use chrono::Utc;
+use chrono::Local;
 use compact_str::{CompactString, format_compact};
 use owo_colors::Rgb;
 use owo_colors::Style as OwoStyle;
@@ -95,6 +95,7 @@ impl Formatter {
         self
     }
 
+    /// Sets the timestamp format. Timestamps use the local system timezone.
     #[must_use]
     pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
         self.time_format = fmt.into();
@@ -181,7 +182,7 @@ impl Formatter {
     }
 
     fn write_time(&self, writer: &mut Writer<'_>, theme: &Theme) -> fmt::Result {
-        let now = Utc::now();
+        let now = Local::now();
         let style = self.themed(theme.text);
         match &self.time_items {
             Some(items) => write!(
