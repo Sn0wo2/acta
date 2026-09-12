@@ -1,13 +1,10 @@
-use crate::color::Styled;
+use crate::color::rgb_to_owo;
 use crate::config::ColorDepth;
 use crate::config::{Icons, LevelLabels, Style, Theme};
-use chrono::Utc;
-use owo_colors::Rgb;
+use chrono::Local;
+use compact_str::{CompactString, format_compact};
 use owo_colors::Style as OwoStyle;
-use smallvec::SmallVec;
-
 use std::fmt;
-use std::sync::Arc;
 
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::fmt::FormattedFields;
@@ -23,11 +20,11 @@ const DEFAULT_PATH_WIDTH: usize = include!(concat!(env!("OUT_DIR"), "/path_width
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Formatter {
-    pub(crate) time_format: String,
+    pub(crate) time_items: Vec<chrono::format::Item<'static>>,
     pub(crate) path_width: usize,
     pub(crate) show_path: bool,
     pub(crate) show_spans: bool,
-    pub(crate) style: Arc<arc_swap::ArcSwap<Style>>,
+    pub(crate) style: Style,
     pub(crate) color_depth: ColorDepth,
 }
 
@@ -40,58 +37,43 @@ impl Default for Formatter {
 impl Formatter {
     #[must_use]
     pub fn new() -> Self {
-        Self::new_with_handle(Arc::new(arc_swap::ArcSwap::new(Arc::new(Style::default()))))
-    }
-
-    /// Creates a Formatter that shares its style state with an existing handle.
-    /// All builder methods (`with_theme`, `with_icons`, etc.) will write through
-    /// this handle, and any future writes to the handle (e.g. via TracingGuard::with_style)
-    /// are visible immediately in `format_event`.
-    #[must_use]
-    pub fn new_with_handle(style: Arc<arc_swap::ArcSwap<Style>>) -> Self {
         Self {
-            time_format: String::from("%H:%M:%S"),
+            time_items: Self::parse_time_items("%H:%M:%S"),
             path_width: DEFAULT_PATH_WIDTH,
             show_path: true,
             show_spans: true,
-            style,
+            style: Style::default(),
             color_depth: ColorDepth::TrueColor,
         }
     }
 
     /// Returns a copy of the current style configuration.
     #[must_use]
-    pub fn style_config(&self) -> Style {
-        **self.style.load()
+    pub const fn style_config(&self) -> Style {
+        self.style
     }
 
     #[must_use]
-    pub fn with_style_config(self, new_style: Style) -> Self {
-        self.style.store(Arc::new(new_style));
+    pub const fn with_style_config(mut self, style: Style) -> Self {
+        self.style = style;
         self
     }
 
     #[must_use]
-    pub fn with_icons(self, icons: Icons) -> Self {
-        let mut style = **self.style.load();
-        style.icons = icons;
-        self.style.store(Arc::new(style));
+    pub const fn with_icons(mut self, icons: Icons) -> Self {
+        self.style.icons = icons;
         self
     }
 
     #[must_use]
-    pub fn with_labels(self, labels: LevelLabels) -> Self {
-        let mut style = **self.style.load();
-        style.labels = labels;
-        self.style.store(Arc::new(style));
+    pub const fn with_labels(mut self, labels: LevelLabels) -> Self {
+        self.style.labels = labels;
         self
     }
 
     #[must_use]
-    pub fn with_theme(self, theme: Theme) -> Self {
-        let mut style = **self.style.load();
-        style.theme = theme;
-        self.style.store(Arc::new(style));
+    pub const fn with_theme(mut self, theme: Theme) -> Self {
+        self.style.theme = theme;
         self
     }
 
@@ -102,9 +84,31 @@ impl Formatter {
     }
 
     #[must_use]
-    pub fn with_time_format(mut self, fmt: String) -> Self {
-        self.time_format = fmt;
+    pub const fn with_path_width(mut self, width: usize) -> Self {
+        self.path_width = width;
         self
+    }
+
+    /// Sets the timestamp format. Timestamps use the local system timezone.
+    #[must_use]
+    pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
+        let fmt = fmt.into();
+        self.time_items = Self::parse_time_items(&fmt);
+        self
+    }
+
+    fn parse_time_items(fmt: &str) -> Vec<chrono::format::Item<'static>> {
+        chrono::format::StrftimeItems::new(fmt)
+            .map(chrono::format::Item::to_owned)
+            .collect()
+    }
+
+    fn themed(&self, (r, g, b): (u8, u8, u8)) -> OwoStyle {
+        rgb_to_owo((r, g, b), self.color_depth, false)
+    }
+
+    fn themed_dimmed(&self, (r, g, b): (u8, u8, u8)) -> OwoStyle {
+        rgb_to_owo((r >> 2, g >> 2, b >> 2), self.color_depth, false)
     }
 
     #[must_use]
@@ -119,40 +123,47 @@ impl Formatter {
         self
     }
 
-    pub(crate) fn format_path(&self, file: &str, line: u32) -> String {
+    fn format_path(&self, file: &str, line: u32) -> CompactString {
         let max_width = self.path_width;
-
         let relative = file
             .split_once("src/")
             .map(|(_, tail)| tail)
             .or_else(|| file.split_once("src\\").map(|(_, tail)| tail))
             .unwrap_or(file);
 
-        let path_str = relative.replace('\\', "/");
+        let path_str = if relative.contains('\\') {
+            relative.replace('\\', "/").into()
+        } else {
+            CompactString::new(relative)
+        };
 
-        let full = format!("{path_str}:{line}");
+        let full = format_compact!("{path_str}:{line}");
         if full.len() <= max_width {
-            return format!("{full:>max_width$}");
+            return format_compact!("{full:>max_width$}");
         }
 
         if let Some(last_slash) = path_str.rfind('/') {
             let filename = &path_str[last_slash + 1..];
-            let file_with_line = format!("{filename}:{line}");
+            let file_with_line = format_compact!("{filename}:{line}");
 
             if file_with_line.len() + 2 <= max_width {
                 let dir_part = &path_str[..last_slash];
-                let start = dir_part
+                let mut start = dir_part
                     .len()
                     .saturating_sub(max_width.saturating_sub(file_with_line.len() + 1));
-                let mut adj = start;
-                while adj < dir_part.len() && !dir_part.is_char_boundary(adj) {
-                    adj += 1;
+                while start < dir_part.len() && !dir_part.is_char_boundary(start) {
+                    start += 1;
                 }
-                let dir_tail = &dir_part[adj..];
-                let clean_dir = dir_tail.rfind('/').map_or(dir_tail, |i| &dir_tail[i + 1..]);
+                let dir_tail = &dir_part[start..];
+                let clean_dir =
+                    if start > 0 && dir_part.as_bytes().get(start - 1).copied() == Some(b'/') {
+                        dir_tail
+                    } else {
+                        dir_tail.find('/').map_or(dir_tail, |i| &dir_tail[i + 1..])
+                    };
 
-                let formatted = format!("{clean_dir}/{file_with_line}");
-                return format!("{formatted:>max_width$}");
+                let formatted = format_compact!("{clean_dir}/{file_with_line}");
+                return format_compact!("{formatted:>max_width$}");
             }
         }
 
@@ -161,19 +172,16 @@ impl Formatter {
         while adj < full.len() && !full.is_char_boundary(adj) {
             adj += 1;
         }
-        format!("…{}", &full[adj..])
+        format_compact!("…{}", &full[adj..])
     }
 
     fn write_time(&self, writer: &mut Writer<'_>, theme: &Theme) -> fmt::Result {
-        let now = Utc::now();
+        let now = Local::now();
+        let style = self.themed(theme.text);
         write!(
             writer,
             "{}",
-            OwoStyle::from(Styled::new(
-                Rgb(theme.text.0, theme.text.1, theme.text.2),
-                self.color_depth
-            ))
-            .style(now.format(&self.time_format))
+            style.style(now.format_with_items(self.time_items.iter()))
         )
     }
 
@@ -187,28 +195,12 @@ impl Formatter {
         write!(
             writer,
             "{}",
-            OwoStyle::from(
-                Styled::new(
-                    Rgb(theme.text.0, theme.text.1, theme.text.2),
-                    self.color_depth
-                )
-                .dimmed()
-            )
-            .style(self.format_path(
+            self.themed_dimmed(theme.text).style(self.format_path(
                 event.metadata().file().unwrap_or("?"),
                 event.metadata().line().unwrap_or(0),
             ))
         )?;
-        write!(
-            writer,
-            " {} ",
-            OwoStyle::from(Styled::new(
-                Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
-                self.color_depth
-            ))
-            .style(icons.arrow)
-        )?;
-        Ok(())
+        write!(writer, " {} ", self.themed(theme.accent).style(icons.arrow))
     }
 
     fn format_fields(
@@ -220,41 +212,24 @@ impl Formatter {
         let mut visitor = EventVisitor::default();
         event.record(&mut visitor);
 
+        let key_style = self.themed(theme.secondary);
+        let eq_style = self.themed(theme.accent);
+        let value_style = self.themed(theme.text);
+
         let mut sep = if let Some(msg) = visitor.message {
-            write!(
-                writer,
-                "{}",
-                OwoStyle::from(Styled::new(
-                    Rgb(theme.text.0, theme.text.1, theme.text.2),
-                    self.color_depth
-                ))
-                .style(msg)
-            )?;
+            write!(writer, "{}", value_style.style(msg))?;
             " "
         } else {
             ""
         };
 
-        for (k, v) in visitor.fields {
+        for (k, v) in &visitor.fields {
             write!(
                 writer,
-                "{}{}{}{}",
-                sep,
-                OwoStyle::from(Styled::new(
-                    Rgb(theme.secondary.0, theme.secondary.1, theme.secondary.2),
-                    self.color_depth
-                ))
-                .style(k),
-                OwoStyle::from(Styled::new(
-                    Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
-                    self.color_depth
-                ))
-                .style("="),
-                OwoStyle::from(Styled::new(
-                    Rgb(theme.text.0, theme.text.1, theme.text.2),
-                    self.color_depth
-                ))
-                .style(v)
+                "{sep}{}{}{}",
+                key_style.style(k),
+                eq_style.style("="),
+                value_style.style(v)
             )?;
             sep = " ";
         }
@@ -280,52 +255,33 @@ impl Formatter {
             return Ok(());
         };
 
-        let spans: SmallVec<[_; 8]> = scope.from_root().collect();
-        if spans.is_empty() {
+        let mut iter = scope.from_root().peekable();
+        if iter.peek().is_none() {
             return Ok(());
         }
 
-        let total = spans.len();
-        let accent = OwoStyle::from(Styled::new(
-            Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
-            self.color_depth,
-        ));
-        let accent_dimmed = OwoStyle::from(
-            Styled::new(
-                Rgb(theme.accent.0, theme.accent.1, theme.accent.2),
-                self.color_depth,
-            )
-            .dimmed(),
-        );
-        let text = OwoStyle::from(Styled::new(
-            Rgb(theme.text.0, theme.text.1, theme.text.2),
-            self.color_depth,
-        ));
-        let text_dimmed = OwoStyle::from(
-            Styled::new(
-                Rgb(theme.text.0, theme.text.1, theme.text.2),
-                self.color_depth,
-            )
-            .dimmed(),
-        );
+        let accent = self.themed(theme.accent);
+        let accent_dimmed = self.themed_dimmed(theme.accent);
+        let text = self.themed(theme.text);
+        let text_dimmed = self.themed_dimmed(theme.text);
 
         write!(writer, " {}", accent.style("["))?;
 
-        for (i, span) in spans.iter().enumerate() {
-            if i > 0 {
-                write!(writer, "{} ", accent_dimmed.style(icons.span_join))?;
-            }
-
-            let span_style = if i == total - 1 { text } else { text_dimmed };
+        while let Some(span) = iter.next() {
+            let is_last = iter.peek().is_none();
+            let span_style = if is_last { text } else { text_dimmed };
 
             write!(writer, "{}", span_style.style(span.name()))?;
 
-            let extensions = span.extensions();
-            if let Some(fields) = extensions.get::<FormattedFields<N>>() {
+            if let Some(fields) = span.extensions().get::<FormattedFields<N>>() {
                 let fields_str = fields.fields.as_str();
                 if !fields_str.is_empty() {
                     write!(writer, " {}", span_style.style(fields_str))?;
                 }
+            }
+
+            if !is_last {
+                write!(writer, "{} ", accent_dimmed.style(icons.span_join))?;
             }
         }
 
@@ -344,7 +300,7 @@ where
         mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> fmt::Result {
-        let config = self.style.load();
+        let config = &self.style;
 
         let level = event.metadata().level();
 
@@ -356,67 +312,25 @@ where
             Level::TRACE => (config.theme.trace, config.labels.trace),
         };
 
-        let level_rgb = Rgb(color.0, color.1, color.2);
-        let fg_only = OwoStyle::from(Styled::new(level_rgb, self.color_depth));
-        let on_bg = OwoStyle::from(Styled::new(level_rgb, self.color_depth).on());
-
+        let on_bg = rgb_to_owo(color, self.color_depth, true);
         let bracket_style = if config.icons.name == "nerd" {
-            fg_only
+            self.themed(color)
         } else {
             on_bg
         };
+        let accent = self.themed(config.theme.accent);
+        let accent_dimmed = self.themed_dimmed(config.theme.accent);
 
-        write!(
-            writer,
-            "{}",
-            OwoStyle::from(Styled::new(
-                Rgb(
-                    config.theme.accent.0,
-                    config.theme.accent.1,
-                    config.theme.accent.2
-                ),
-                self.color_depth
-            ))
-            .style(config.icons.time_bracket_open)
-        )?;
+        write!(writer, "{}", accent.style(config.icons.time_bracket_open))?;
         self.write_time(&mut writer, &config.theme)?;
         write!(
             writer,
-            " {} ",
-            OwoStyle::from(
-                Styled::new(
-                    Rgb(
-                        config.theme.accent.0,
-                        config.theme.accent.1,
-                        config.theme.accent.2
-                    ),
-                    self.color_depth
-                )
-                .dimmed()
-            )
-            .style(config.icons.separator)
-        )?;
-
-        write!(writer, "{}", bracket_style.style(config.icons.bracket_open))?;
-        write!(writer, "{}", on_bg.style(level_label))?;
-        write!(
-            writer,
-            "{} ",
-            bracket_style.style(config.icons.bracket_close)
-        )?;
-
-        write!(
-            writer,
-            "{} ",
-            OwoStyle::from(Styled::new(
-                Rgb(
-                    config.theme.accent.0,
-                    config.theme.accent.1,
-                    config.theme.accent.2
-                ),
-                self.color_depth
-            ))
-            .style(config.icons.time_bracket_close)
+            " {} {}{}{} {} ",
+            accent_dimmed.style(config.icons.separator),
+            bracket_style.style(config.icons.bracket_open),
+            on_bg.style(level_label),
+            bracket_style.style(config.icons.bracket_close),
+            accent.style(config.icons.time_bracket_close),
         )?;
 
         if self.show_path {

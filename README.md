@@ -80,24 +80,37 @@ If you disable default features, `init` is unavailable unless the `file` feature
 - **Path and span display**: enabled
 - **File logging**: disabled
 
+`init` accepts anything convertible into a `Config`: a `Level`, a `Filter`, a single `Writer`,
+a `Vec<Writer>`, or a full `Config`.
+
 ```rust
-use acta::{
-    init, Format, LayerConfig, Level, Config, Result, Writer,
-};
+use acta::{init, Level, Result, Theme, Writer};
 
 fn main() -> Result<()> {
-    let config = Config {
-        filter: Level::Debug.into(),
-        writers: vec![Writer {
-            format: Format::Compact(LayerConfig::compact()),
-            ansi: true,
-            show_path: true,
-            show_spans: true,
-            time_format: Some("%Y-%m-%d %H:%M:%S".to_string()),
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
+    // Simplest: just pick a level.
+    // let _guard = init(Level::Debug)?;
+
+    // Or configure a writer fluently:
+    let writer = Writer::stdout()
+        .with_theme(Theme::tokyo_night())
+        .with_time_format("%Y-%m-%d %H:%M:%S");
+    let _guard = init(writer)?;
+
+    Ok(())
+}
+```
+
+Multiple writers with a custom filter go through the builder:
+
+```rust
+use acta::{init, Config, Level, Result, Writer};
+
+fn main() -> Result<()> {
+    let config = Config::builder()
+        .level(Level::Debug)
+        .with_writer(Writer::stdout().pretty())
+        .with_writer(Writer::stderr().json().with_ansi(false))
+        .build();
 
     let _guard = init(config)?;
 
@@ -119,26 +132,17 @@ File logging is available with the `file` feature, which is enabled by default. 
 events.
 
 ```rust
-use acta::{
-    init, Format, LayerConfig, Level, Config, Result, Rotation, Writer, WriterTarget,
-};
-use std::path::PathBuf;
+use acta::{init, FileConfig, Result, Rotation, Writer, WriterTarget};
 
 fn main() -> Result<()> {
-    let config = Config {
-        filter: Level::Info.into(),
-        writers: vec![Writer {
-            format: Format::Compact(LayerConfig::compact()),
-            target: WriterTarget::File {
-                path: PathBuf::from("logs/app.log"),
-                rotation: Rotation::Rename,
-            },
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
+    // Simple: log to a file with default rotation.
+    // let _guard = init(Writer::file("logs/app.log"))?;
 
-    let _guard = init(config)?;
+    // With rotation:
+    let writer = Writer::stdout().with_target(WriterTarget::File(
+        FileConfig::new("logs/app.log").with_rotation(Rotation::Rename),
+    ));
+    let _guard = init(writer)?;
 
     Ok(())
 }
@@ -157,12 +161,12 @@ Supported rotation modes:
 acta uses `tracing-subscriber` `EnvFilter` directive syntax for startup filters and runtime reloads.
 
 ```rust
-use acta::{Config, Filter};
+use acta::{init, Filter, Result};
 
-let config = Config {
-    filter: Filter::from_directive("info,my_crate=debug,my_crate::db=trace"),
-    ..Default::default()
-};
+fn main() -> Result<()> {
+    let _guard = init(Filter::from_directive("info,my_crate=debug,my_crate::db=trace"))?;
+    Ok(())
+}
 ```
 
 You can change filters after initialization directly through `TracingGuard`.
@@ -187,13 +191,10 @@ fn main() -> Result<()> {
 `RUST_LOG` is not read automatically. If you want to use it, pass its value into `Filter::from_directive`.
 
 ```rust
-use acta::{Config, Filter};
+use acta::Filter;
 
 let directive = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-let config = Config {
-    filter: Filter::from_directive(directive),
-    ..Default::default()
-};
+let filter = Filter::from_directive(directive);
 ```
 
 ## Custom formatter
@@ -291,23 +292,6 @@ use acta::{Icons, LevelLabels};
 
 let custom_icons = Icons::custom("custom", "[", "]", "{", "}", "|", ">", "->", "·");
 let custom_labels = LevelLabels::custom("ERR", "WRN", "INF", "DBG", "TRC");
-```
-
-## Runtime style reload
-
-`TracingGuard` can reload themes, icons, and labels via `with_style` directly on the returned guard:
-
-```rust
-use acta::{init, Config, Theme, Result};
-
-fn main() -> Result<()> {
-    let mut guard = init(Config::default())?;
-
-    // Reload the theme dynamically at runtime!
-    guard.with_style(|s| s.theme = Theme::dracula());
-
-    Ok(())
-}
 ```
 
 ## Async console writers

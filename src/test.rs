@@ -1,10 +1,9 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::io;
-use std::sync::Arc;
 
 use super::*;
-use crate::builder::{BoxedLayer, ReloadHandle, build_layer_with};
+use crate::builder::{BoxedLayer, ReloadHandle};
 use crate::config::LayerConfig;
 use tracing_subscriber::Registry;
 use tracing_subscriber::layer::Layered;
@@ -15,7 +14,7 @@ type TestSubscriber = Layered<
     builder::InnerSubscriber,
 >;
 
-fn build_test_guard(level: Level, style: Style) -> (TracingGuard, TestSubscriber) {
+fn build_test_guard(level: Level) -> (TracingGuard, TestSubscriber) {
     let filter = Filter::new(level);
     let env_filter =
         tracing_subscriber::EnvFilter::try_new(filter.as_directive()).unwrap_or_default();
@@ -32,7 +31,6 @@ fn build_test_guard(level: Level, style: Style) -> (TracingGuard, TestSubscriber
     let guard = TracingGuard {
         raw,
         filter,
-        style: Arc::new(arc_swap::ArcSwap::new(Arc::new(style))),
         #[cfg(feature = "file")]
         worker_guards: Vec::new(),
         #[cfg(feature = "file")]
@@ -62,7 +60,7 @@ fn build_layer_all_variants() {
                 style: Style::default(),
                 target: target.clone(),
             };
-            let _layer = build_layer_with(&w, None);
+            let _layer = build_layer(&w);
         }
     }
 }
@@ -73,7 +71,7 @@ fn build_layer_no_ansi() {
         ansi: false,
         ..Default::default()
     };
-    let _layer = build_layer_with(&w, None);
+    let _layer = build_layer(&w);
 }
 
 #[test]
@@ -82,41 +80,27 @@ fn build_layer_custom_time() {
         time_format: Some(String::from("%Y/%m/%d")),
         ..Default::default()
     };
-    let _layer = build_layer_with(&w, None);
+    let _layer = build_layer(&w);
 }
 
 #[cfg(feature = "nerd")]
 #[test]
 fn build_layer_with_nerd_icons() {
     let w = Writer::default();
-    let _layer = build_layer_with(&w, None);
-}
-
-#[test]
-fn reload_handle_with_style_config() {
-    let (mut handle, _sub) = build_test_guard(Level::Info, Style::default());
-    handle.with_style(|s| s.theme = Theme::dracula());
-    handle.with_style(|s| s.icons = Icons::UNICODE);
-    handle.with_style(|s| s.labels = LevelLabels::SHORT);
+    let _layer = build_layer(&w);
 }
 
 #[test]
 fn reload_handle_set_target_level_accepts_string() {
-    let (mut handle, _sub) = build_test_guard(Level::Info, Style::default());
+    let (mut handle, _sub) = build_test_guard(Level::Info);
     let target = String::from("my_crate");
     assert!(handle.set_target_level(target, Level::Trace).is_ok());
 }
 
 #[test]
 fn reload_handle_remove_nonexistent_target_level() {
-    let (mut handle, _sub) = build_test_guard(Level::Info, Style::default());
+    let (mut handle, _sub) = build_test_guard(Level::Info);
     assert!(handle.remove_target_level("nonexistent_crate").is_ok());
-}
-
-#[test]
-fn acta_error_display_lock_poisoned() {
-    let msg = format!("{}", ActaError::LockPoisoned);
-    assert!(msg.contains("log filter state lock poisoned"));
 }
 
 #[test]
@@ -135,7 +119,7 @@ fn acta_error_from_io_error() {
 
 #[test]
 fn set_filter_with_raw_directive_updates_guard() {
-    let (mut guard, subscriber) = build_test_guard(Level::Info, Style::default());
+    let (mut guard, subscriber) = build_test_guard(Level::Info);
     let filter = Filter::from_directive("info,my_crate=debug");
     guard
         .set_filter(filter)
@@ -161,7 +145,7 @@ fn set_filter_with_raw_directive_updates_guard() {
 
 #[test]
 fn set_level_after_filter_replaces_with_simple_level_directive() {
-    let (mut guard, _subscriber) = build_test_guard(Level::Info, Style::default());
+    let (mut guard, _subscriber) = build_test_guard(Level::Info);
     guard
         .set_filter(Filter::from_directive("info,my_crate=debug"))
         .expect("set_filter should succeed");
@@ -177,7 +161,7 @@ fn set_level_after_filter_replaces_with_simple_level_directive() {
 
 #[test]
 fn set_target_level_after_raw_directive_adds_per_target_override() {
-    let (mut guard, _subscriber) = build_test_guard(Level::Info, Style::default());
+    let (mut guard, _subscriber) = build_test_guard(Level::Info);
     guard
         .set_filter(Filter::from_directive("info,my_crate=debug"))
         .expect("initial set_filter should succeed");
@@ -196,5 +180,16 @@ fn set_target_level_after_raw_directive_adds_per_target_override() {
     assert!(
         directive.contains("demo=trace"),
         "directive should include the new per-target override: {directive}"
+    );
+}
+
+#[test]
+fn set_filter_with_invalid_directive_returns_error() {
+    let (mut guard, _sub) = build_test_guard(Level::Info);
+    let filter = Filter::from_directive("foo=notalevel");
+    let result = guard.set_filter(filter);
+    assert!(
+        result.is_err(),
+        "set_filter with invalid directive should return Err"
     );
 }

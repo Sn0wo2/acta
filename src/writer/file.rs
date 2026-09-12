@@ -1,37 +1,18 @@
 use std::path::{Path, PathBuf};
 
-use tracing_subscriber::fmt::MakeWriter;
-
 use crate::Result;
 use crate::config::Rotation;
 pub type LogHandle = tracing_appender::non_blocking::WorkerGuard;
-
-#[derive(Clone, Debug)]
-#[allow(clippy::module_name_repetitions)]
-pub(crate) struct FileWriter {
-    writer: tracing_appender::non_blocking::NonBlocking,
-}
-
-impl MakeWriter<'_> for FileWriter {
-    type Writer = tracing_appender::non_blocking::NonBlocking;
-
-    fn make_writer(&self) -> Self::Writer {
-        self.writer.clone()
-    }
-}
-
-impl FileWriter {
-    #[allow(clippy::single_call_fn)]
-    pub(crate) const fn new(writer: tracing_appender::non_blocking::NonBlocking) -> Self {
-        Self { writer }
-    }
-}
 
 #[allow(clippy::single_call_fn)]
 pub(crate) fn build_file_layer(
     path: &Path,
     rotation: Rotation,
-) -> Result<(FileWriter, LogHandle, PathBuf)> {
+) -> Result<(
+    tracing_appender::non_blocking::NonBlocking,
+    LogHandle,
+    PathBuf,
+)> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -44,7 +25,7 @@ pub(crate) fn build_file_layer(
         path.file_name().unwrap_or_default(),
     ));
 
-    Ok((FileWriter::new(non_blocking), guard, path))
+    Ok((non_blocking, guard, path))
 }
 
 #[allow(clippy::module_name_repetitions)]

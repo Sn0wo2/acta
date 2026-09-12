@@ -42,24 +42,14 @@ const PADDING: usize = 4;
 /// `.rs` files — safe to call unconditionally from a `build.rs`.
 #[must_use]
 pub fn walk_src_max_width(dir: impl AsRef<Path>, strip_prefix: &str) -> usize {
-    let entries: Vec<_> = WalkDir::new(dir.as_ref())
+    WalkDir::new(dir.as_ref())
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
-        .collect();
-
-    if entries.is_empty() {
-        return FALLBACK_WIDTH;
-    }
-
-    let max = entries
-        .iter()
         .map(|e| {
             let display = e.path().to_string_lossy().replace('\\', "/");
             display.strip_prefix(strip_prefix).unwrap_or(&display).len()
         })
         .max()
-        .unwrap_or(FALLBACK_WIDTH);
-
-    max + PADDING
+        .map_or(FALLBACK_WIDTH, |max| max + PADDING)
 }

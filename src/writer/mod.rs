@@ -23,8 +23,6 @@ pub use native::{NativeAsyncWriter, native_async_writer};
 pub mod file;
 
 #[cfg(feature = "file")]
-pub(crate) use file::FileWriter;
-#[cfg(feature = "file")]
 pub use file::{LogHandle, resolve_log_path, rotate_log_file};
 
 #[cfg(test)]

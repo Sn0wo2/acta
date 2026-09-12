@@ -358,10 +358,6 @@ fn main() {
             log!(info, "→ set_target_level(demo, Trace)");
             tracing::trace!(target: "demo", "demo trace passes");
 
-            g.with_style(|s| s.theme = Theme::monokai());
-            log!(info, "→ style switch (monokai)");
-            tracing::warn!("monokai");
-
             drop(g);
         }
         Err(e) => log!(fail, &format!("init: {e}")),
