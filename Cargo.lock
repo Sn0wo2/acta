@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acta"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "acta-build",
  "ansi_colours",
@@ -29,14 +29,14 @@ dependencies = [
 
 [[package]]
 name = "acta-build"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "walkdir",
 ]
 
 [[package]]
 name = "acta-debug"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "acta",
  "smallvec",

@@ -14,10 +14,10 @@ exclude = [".github/", ".idea/", "img.png"]
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 
 [workspace.dependencies]
-acta-build = { path = "crates/acta-build", version = "0.1.1" }
+acta-build = { path = "crates/acta-build", version = "0.2.0" }
 
 [features]
 default = ["unicode", "file"]
