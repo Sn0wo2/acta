@@ -25,5 +25,8 @@ pub mod file;
 #[cfg(feature = "file")]
 pub use file::{LogHandle, resolve_log_path, rotate_log_file};
 
+#[cfg(all(target_arch = "wasm32", feature = "wasm-console"))]
+pub(crate) mod wasm;
+
 #[cfg(test)]
 mod test;

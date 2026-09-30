@@ -8,8 +8,27 @@ pub mod color;
 pub mod config;
 pub mod fmt;
 pub mod prelude;
-#[cfg(any(feature = "file", feature = "custom-async", feature = "native-async"))]
+#[cfg(any(
+    feature = "file",
+    feature = "custom-async",
+    feature = "native-async",
+    all(target_arch = "wasm32", feature = "wasm-console")
+))]
 pub mod writer;
+
+#[cfg(all(
+    target_arch = "wasm32",
+    any(
+        feature = "file",
+        feature = "custom-async",
+        feature = "native-async",
+        feature = "compress"
+    )
+))]
+compile_error!(
+    "acta: the `file`, `compress`, `custom-async` and `native-async` features are not \
+     supported on wasm32; build with `default-features = false` and enable `wasm-console`"
+);
 
 pub use builder::{TracingGuard, build_layer, init};
 #[cfg(feature = "file")]

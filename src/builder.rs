@@ -2,6 +2,7 @@
 use crate::config::AsyncMode;
 use crate::config::{ColorDepth, Config, Filter, Format, Writer, WriterTarget};
 use crate::fmt::Formatter;
+#[cfg(not(all(target_arch = "wasm32", feature = "wasm-console")))]
 use std::io;
 #[cfg(feature = "file")]
 use std::path::PathBuf;
@@ -11,7 +12,12 @@ use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::layer::Layered;
 use tracing_subscriber::prelude::*;
 
-#[cfg(any(feature = "file", feature = "custom-async", feature = "native-async"))]
+#[cfg(any(
+    feature = "file",
+    feature = "custom-async",
+    feature = "native-async",
+    all(target_arch = "wasm32", feature = "wasm-console")
+))]
 use crate::writer;
 
 pub(crate) type BoxedLayer = Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>;
@@ -19,6 +25,7 @@ pub(crate) type InnerSubscriber = Layered<Vec<BoxedLayer>, Registry>;
 pub(crate) type ReloadHandle =
     tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, InnerSubscriber>;
 
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::single_call_fn)]
 fn detect_color_depth(target: &WriterTarget) -> ColorDepth {
     use supports_color::Stream;
@@ -101,6 +108,7 @@ fn build_fmt_layer(
 /// For production use, prefer [`init`] which handles file layers and
 /// reload guards automatically.
 pub fn build_layer(writer: &Writer) -> BoxedLayer {
+    #[cfg(not(target_arch = "wasm32"))]
     let color_depth = writer.color_depth.unwrap_or_else(|| {
         if writer.ansi {
             detect_color_depth(&writer.target)
@@ -108,10 +116,18 @@ pub fn build_layer(writer: &Writer) -> BoxedLayer {
             ColorDepth::NoColor
         }
     });
+    #[cfg(target_arch = "wasm32")]
+    let color_depth = writer.color_depth.unwrap_or(ColorDepth::NoColor);
 
     let make_writer = match &writer.target {
+        #[cfg(not(all(target_arch = "wasm32", feature = "wasm-console")))]
         WriterTarget::Stdout => BoxMakeWriter::new(io::stdout),
+        #[cfg(all(target_arch = "wasm32", feature = "wasm-console"))]
+        WriterTarget::Stdout => BoxMakeWriter::new(writer::wasm::log_sink),
+        #[cfg(not(all(target_arch = "wasm32", feature = "wasm-console")))]
         WriterTarget::Stderr => BoxMakeWriter::new(io::stderr),
+        #[cfg(all(target_arch = "wasm32", feature = "wasm-console"))]
+        WriterTarget::Stderr => BoxMakeWriter::new(writer::wasm::error_sink),
         #[cfg(feature = "custom-async")]
         WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size }) => BoxMakeWriter::new(
             writer::async_writer_for(writer::AsyncWriterTarget::Stdout, *buffer_size),

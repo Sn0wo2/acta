@@ -1,4 +1,4 @@
-.PHONY: all fix lint test test-all test-no-default fmt fmt-check publish-dry run debug build release release-snapshot check clean check-all-features check-no-default
+.PHONY: all fix lint test test-all test-no-default fmt fmt-check clippy publish-dry run debug build release release-snapshot check clean check-all-features check-no-default check-wasm
 
 all: check
 
@@ -30,6 +30,9 @@ check-all-features:
 
 check-no-default:
 	cargo check --all-targets --no-default-features
+
+check-wasm:
+	cargo check -p acta --lib --no-default-features --features unicode,wasm-console --target wasm32-unknown-unknown
 
 check: fix lint test test-all test-no-default check-all-features check-no-default publish-dry
 
