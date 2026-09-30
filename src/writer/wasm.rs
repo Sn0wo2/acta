@@ -1,4 +1,3 @@
-
 use std::io;
 
 #[derive(Clone, Copy, Debug)]
