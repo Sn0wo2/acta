@@ -36,8 +36,12 @@ jobs:
 
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install macOS SDK
-        run: python3 scripts/install-macos-sdk.py
+        run: bun scripts/install-macos-sdk.js
 
       - name: Cache cargo-zigbuild
         uses: actions/cache@v6
@@ -57,7 +61,7 @@ jobs:
           install-only: true
 
       - name: Prepare scripts
-        run: chmod +x ./scripts/cargo-or-zigbuild.py
+        run: chmod +x ./scripts/cargo-or-zigbuild.js
 
       - name: Build
         run: make build

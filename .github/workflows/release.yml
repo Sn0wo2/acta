@@ -56,10 +56,15 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-zigbuild,cargo-edit
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install macOS SDK
-        run: python3 scripts/install-macos-sdk.py
+        run: bun scripts/install-macos-sdk.js
+
       - name: Ensure build script is executable
-        run: chmod +x scripts/cargo-or-zigbuild.py
+        run: chmod +x scripts/cargo-or-zigbuild.js
 
       - name: Normalize version
         run: |
