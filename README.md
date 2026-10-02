@@ -21,6 +21,13 @@ The default feature set enables Unicode console output and file logging.
 cargo add acta --features serde,compress,nerd,async
 ```
 
+For wasm32 targets, use `wasm-console` instead (see [WebAssembly](#webassembly)):
+
+```toml
+[dependencies]
+acta = { version = "x.x.x", default-features = false, features = ["wasm-console"] }
+```
+
 ## Quick start
 
 Import the types you need directly:
@@ -53,22 +60,23 @@ fn main() -> Result<()> {
 }
 ```
 
-Keep the returned guard alive for as long as logging is needed. Dropping it stops file logging.
+Keep the returned guard alive for as long as logging is needed. Dropping it flushes and stops file logging.
 
 ## Features
 
-| Feature        | Enabled by default | Description                                                                   |
-| -------------- | ------------------ | ----------------------------------------------------------------------------- |
-| `unicode`      | Yes                | Uses the Unicode icon set unless `nerd` selects Nerd Font icons.              |
-| `file`         | Yes                | Enables `init`, `TracingGuard`, and file logging through `tracing-appender`.  |
-| `compress`     | No                 | Enables `Rotation::Compress` for gzip-compressing old log files.              |
-| `serde`        | No                 | Adds `Serialize` / `Deserialize` support for config types.                    |
-| `nerd`         | No                 | Enables Nerd Font icons through `Icons::NERD` and uses them by default.       |
-| `custom-async` | No                 | Enables Tokio-backed async console writers.                                   |
-| `native-async` | No                 | Enables non-blocking console writers backed by `tracing-appender`.            |
-| `async`        | No                 | Enables both `custom-async` and `native-async`.                               |
+| Feature        | Enabled by default | Description                                                                        |
+| -------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `unicode`      | Yes                | Unicode icon set, always available through `Icons::UNICODE`.                       |
+| `file`         | Yes                | Enables `WriterTarget::File` and `FileConfig` through `tracing-appender`.          |
+| `compress`     | No                 | Enables `Rotation::Compress` for gzip-compressing old log files.                   |
+| `serde`        | No                 | Adds `Serialize` / `Deserialize` support for config types.                         |
+| `nerd`         | No                 | Enables Nerd Font icons through `Icons::NERD`.                                     |
+| `custom-async` | No                 | Enables Tokio-backed async console writers.                                        |
+| `native-async` | No                 | Enables non-blocking console writers backed by `tracing-appender`. Implies `file`. |
+| `async`        | No                 | Enables both `custom-async` and `native-async`.                                    |
+| `wasm-console` | No                 | Enables console logging on wasm32 targets.                                         |
 
-If you disable default features, `init` is unavailable unless the `file` feature is enabled.
+`file`, `compress`, `custom-async`, and `native-async` are not supported on wasm32 and fail to compile there; use `wasm-console` for those targets.
 
 ## Configuration
 
@@ -77,11 +85,11 @@ If you disable default features, `init` is unavailable unless the `file` feature
 - **Level**: `Level::Info`
 - **Format**: `Format::Compact` (custom formatter with themes)
 - **Writer**: `Writer::Stdout` with ANSI colors enabled
+- **Color depth**: auto-detected from the terminal; `ColorDepth::TrueColor` on wasm
 - **Path and span display**: enabled
 - **File logging**: disabled
 
-`init` accepts anything convertible into a `Config`: a `Level`, a `Filter`, a single `Writer`,
-a `Vec<Writer>`, or a full `Config`.
+`init` accepts anything convertible into a `Config`: a `Level`, a `Filter`, a single `Writer`, a `Vec<Writer>`, or a full `Config`.
 
 ```rust
 use acta::{init, Level, Result, Theme, Writer};
@@ -126,26 +134,31 @@ fn main() -> Result<()> {
 | `Format::Pretty(LayerConfig)`  | `tracing-subscriber` pretty formatter with file and line metadata. |
 | `Format::Json(LayerConfig)`    | Flattened JSON events without ANSI colors.                         |
 
+`LayerConfig` controls the metadata columns: `target`, `file`, and `line_number`; JSON output additionally honors `current_span`, `span_list`, and `flatten_event`. Convenience constructors are available: `LayerConfig::pretty()`, `LayerConfig::compact()`, and `LayerConfig::json()`.
+
 ## File logging
 
-File logging is available with the `file` feature, which is enabled by default. File logs are written as flattened JSON
-events.
+File logging is available with the `file` feature, which is enabled by default. File logs are written as flattened JSON events with ANSI colors disabled.
 
 ```rust
-use acta::{init, FileConfig, Result, Rotation, Writer, WriterTarget};
+use acta::{init, Result, Writer};
 
 fn main() -> Result<()> {
-    // Simple: log to a file with default rotation.
-    // let _guard = init(Writer::file("logs/app.log"))?;
+    let _guard = init(Writer::file("logs/app.log"))?;
 
-    // With rotation:
-    let writer = Writer::stdout().with_target(WriterTarget::File(
-        FileConfig::new("logs/app.log").with_rotation(Rotation::Rename),
-    ));
-    let _guard = init(writer)?;
-
+    println!("Logging to {:?}", _guard.log_path());
     Ok(())
 }
+```
+
+The `Rotation` can also be set through `FileConfig`:
+
+```rust
+use acta::{FileConfig, Rotation, Writer, WriterTarget};
+
+let writer = Writer::default().with_target(WriterTarget::File(
+    FileConfig::new("logs/app.log").with_rotation(Rotation::Rename),
+));
 ```
 
 Supported rotation modes:
@@ -167,6 +180,16 @@ fn main() -> Result<()> {
     let _guard = init(Filter::from_directive("info,my_crate=debug,my_crate::db=trace"))?;
     Ok(())
 }
+```
+
+Filters can also be built programmatically; `Level::Off` disables logging entirely.
+
+```rust
+use acta::{Config, Filter, Level};
+
+let mut filter = Filter::new(Level::Info);
+filter.with_target("my_crate", Level::Debug);
+let _guard = init(filter)?;
 ```
 
 You can change filters after initialization directly through `TracingGuard`.
@@ -199,15 +222,17 @@ let filter = Filter::from_directive(directive);
 
 ## Custom formatter
 
-`Formatter` powers `Format::Compact` and can be customized through builder methods.
+`Formatter` powers `Format::Compact` and can be customized through builder methods. Icons and labels are set through `Style`.
 
 ```rust
-use acta::{Formatter, Icons, LevelLabels, Theme};
+use acta::{Formatter, Icons, LevelLabels, Style, Theme};
 
 let formatter = Formatter::new()
-    .with_theme(Theme::tokyo_night())
-    .with_icons(Icons::UNICODE)
-    .with_labels(LevelLabels::DEFAULT)
+    .with_style(Style {
+        theme: Theme::tokyo_night(),
+        icons: Icons::UNICODE,
+        labels: LevelLabels::SHORT,
+    })
     .with_time_format("%H:%M:%S")
     .with_show_path(true)
     .with_show_spans(true);
@@ -219,7 +244,7 @@ project's source paths, add the `acta-build` helper to your build script:
 
 ```toml
 [build-dependencies]
-acta-build = "0.1"
+acta-build = "0.2"
 ```
 
 ```rust
@@ -236,6 +261,27 @@ fn main() {
 let width: usize = env!("ACTA_PATH_WIDTH").parse().unwrap_or(40);
 let formatter = Formatter::new().with_path_width(width);
 ```
+
+## Color depth
+
+Console output is rendered for the terminal's actual color capabilities. On native targets the depth is auto-detected; on wasm it defaults to `ColorDepth::TrueColor`. File writers always use `ColorDepth::NoColor`.
+
+| Depth                   | Description                          |
+| ----------------------- | ------------------------------------ |
+| `ColorDepth::TrueColor` | 24-bit RGB colors.                   |
+| `ColorDepth::Ansi256`   | 256-color palette, lossy downscale.  |
+| `ColorDepth::Ansi16`    | 16-color palette, lossy downscale.   |
+| `ColorDepth::NoColor`   | Plain text without escape sequences. |
+
+Override the detection per writer:
+
+```rust
+use acta::{ColorDepth, Writer};
+
+let writer = Writer::stdout().with_color_depth(ColorDepth::Ansi256);
+```
+
+`Writer::with_ansi(false)` disables escape sequences entirely, regardless of depth.
 
 ## Themes
 
@@ -274,7 +320,7 @@ use acta::{Icons, LevelLabels};
 
 let unicode_icons = Icons::UNICODE;
 let short_labels = LevelLabels::SHORT;
-let long_labels = LevelLabels::DEFAULT;
+let long_labels = LevelLabels::LONG;
 ```
 
 With the `nerd` feature enabled:
@@ -296,7 +342,7 @@ let custom_labels = LevelLabels::custom("ERR", "WRN", "INF", "DBG", "TRC");
 
 ## Async console writers
 
-With `custom-async`, `native-async`, or `async`, `Writer` gains async stdout and stderr variants.
+With `custom-async`, `native-async`, or `async`, `Writer` gains async stdout and stderr variants: `Writer::async_stdout()` and `Writer::async_stderr()`, both using the default `AsyncMode`.
 
 `AsyncMode::Custom` uses Tokio, so your application must run inside a Tokio runtime. If you use `#[tokio::main]`,
 add Tokio as a direct dependency with the required runtime and macro features.
@@ -305,24 +351,47 @@ add Tokio as a direct dependency with the required runtime and macro features.
 are dropped. Defaults to `DEFAULT_ASYNC_BUFFER_SIZE` (4096); with `serde` enabled the field may be omitted.
 
 ```rust
-use acta::{
-    init, AsyncMode, Config, Result, Writer, WriterTarget,
-};
+use acta::{init, AsyncMode, Result, Writer, WriterTarget};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = Config {
-        writers: vec![Writer {
-            target: WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size: 4096 }),
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
+    let writer = Writer::default().with_target(WriterTarget::AsyncStdout(
+        AsyncMode::Custom { buffer_size: 4096 },
+    ));
 
-    let _guard = init(config)?;
+    let _guard = init(writer)?;
 
     Ok(())
 }
 ```
 
-`AsyncMode::Native` uses `tracing-appender` non-blocking writers.
+`AsyncMode::Native` uses `tracing-appender` non-blocking writers:
+
+```rust
+use acta::{init, AsyncMode, Result, Writer, WriterTarget};
+
+fn main() -> Result<()> {
+    let writer = Writer::default().with_target(WriterTarget::AsyncStdout(AsyncMode::Native));
+    let _guard = init(writer)?;
+    Ok(())
+}
+```
+
+## WebAssembly
+
+With the `wasm-console` feature, acta runs on `wasm32` and writes to the JavaScript console: `Writer::stdout()` maps to `console.log`, `Writer::stderr()` to `console.error`.
+
+In a browser the ANSI escape sequences are converted to `%c` CSS styles so colors render correctly in DevTools; in non-browser JS runtimes such as Node or Cloudflare Workers, the ANSI sequences pass through raw to the terminal. Enable ANSI in browser-compatible output with `Writer::with_ansi(true)` (the default), and pick an explicit depth with `Writer::with_color_depth` if needed.
+
+```rust
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+fn main() {
+    let _guard = acta::init(acta::Level::Info).expect("failed to initialize logging");
+
+    tracing::info!("Hello from wasm!");
+}
+```
+
+The guard can be dropped at the end of `main`; the global subscriber keeps logging. Store it in a `static` (for example through `OnceLock`) only if you plan to reload filters at runtime. The `file`, `compress`, `custom-async`, and `native-async` features fail to compile on wasm32 by design.
