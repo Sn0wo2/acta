@@ -89,15 +89,12 @@ Keep the returned guard alive for as long as logging is needed. Dropping it flus
 - **Path and span display**: enabled
 - **File logging**: disabled
 
-`init` accepts anything convertible into a `Config`: a `Level`, a `Filter`, a single `Writer`, a `Vec<Writer>`, or a full `Config`.
+`init` accepts anything convertible into a `Config`: a `Filter`, a single `Writer`, a `Vec<Writer>`, or a full `Config`.
 
 ```rust
-use acta::{init, Level, Result, Theme, Writer};
+use acta::{init, Result, Theme, Writer};
 
 fn main() -> Result<()> {
-    // Simplest: just pick a level.
-    // let _guard = init(Level::Debug)?;
-
     // Or configure a writer fluently:
     let writer = Writer::stdout()
         .with_theme(Theme::tokyo_night())
@@ -145,8 +142,6 @@ use acta::{init, Result, Writer};
 
 fn main() -> Result<()> {
     let _guard = init(Writer::file("logs/app.log"))?;
-
-    println!("Logging to {:?}", _guard.log_path());
     Ok(())
 }
 ```
@@ -336,13 +331,13 @@ Custom icons and labels:
 ```rust
 use acta::{Icons, LevelLabels};
 
-let custom_icons = Icons::custom("custom", "[", "]", "{", "}", "|", ">", "->", "·");
+let custom_icons = Icons::custom("custom", "[", "]", "{", "}", "|", ">", "·");
 let custom_labels = LevelLabels::custom("ERR", "WRN", "INF", "DBG", "TRC");
 ```
 
 ## Async console writers
 
-With `custom-async`, `native-async`, or `async`, `Writer` gains async stdout and stderr variants: `Writer::async_stdout()` and `Writer::async_stderr()`, both using the default `AsyncMode`.
+With `custom-async`, `native-async`, or `async`, async stdout and stderr targets become available through `WriterTarget::AsyncStdout(AsyncMode)` and `WriterTarget::AsyncStderr(AsyncMode)`.
 
 `AsyncMode::Custom` uses Tokio, so your application must run inside a Tokio runtime. If you use `#[tokio::main]`,
 add Tokio as a direct dependency with the required runtime and macro features.

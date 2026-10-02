@@ -1,6 +1,6 @@
 use compact_str::CompactString;
 #[cfg(feature = "nerd")]
-use nerd_font_symbols::{cod, fa, ple};
+use nerd_font_symbols::{fa, ple};
 use std::collections::HashMap;
 #[cfg(feature = "file")]
 use std::path::PathBuf;
@@ -83,7 +83,6 @@ pub struct Icons {
     pub time_bracket_close: &'static str,
     pub separator: &'static str,
     pub arrow: &'static str,
-    pub span_delimiter: &'static str,
     pub span_join: &'static str,
 }
 
@@ -97,7 +96,6 @@ impl Icons {
         time_bracket_close: &'static str,
         separator: &'static str,
         arrow: &'static str,
-        span_delimiter: &'static str,
         span_join: &'static str,
     ) -> Self {
         Self {
@@ -108,7 +106,6 @@ impl Icons {
             time_bracket_close,
             separator,
             arrow,
-            span_delimiter,
             span_join,
         }
     }
@@ -123,7 +120,6 @@ impl Icons {
         time_bracket_close: "｣",
         separator: "┇", // \u{2507}
         arrow: ">",
-        span_delimiter: "->",
         span_join: "»", // \u{00bb}
     };
 
@@ -136,7 +132,6 @@ impl Icons {
         time_bracket_close: ple::PLE_RIGHT_HALF_CIRCLE_THIN,
         separator: "┇", // \u{2507}
         arrow: fa::FA_CARET_RIGHT,
-        span_delimiter: cod::COD_EXPORT,
         span_join: fa::FA_ANGLES_RIGHT,
     };
 }
@@ -316,10 +311,6 @@ pub struct LayerConfig {
     /// Flatten event into a single line (Json only)
     #[cfg_attr(feature = "serde", serde(default))]
     pub flatten_event: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub thread_ids: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub thread_names: bool,
 }
 
 impl LayerConfig {
@@ -331,8 +322,6 @@ impl LayerConfig {
             current_span: false,
             span_list: false,
             flatten_event: false,
-            thread_ids: false,
-            thread_names: false,
         }
     }
 
@@ -344,8 +333,6 @@ impl LayerConfig {
             current_span: false,
             span_list: false,
             flatten_event: false,
-            thread_ids: false,
-            thread_names: false,
         }
     }
 
@@ -357,15 +344,7 @@ impl LayerConfig {
             current_span: false,
             span_list: false,
             flatten_event: true,
-            thread_ids: false,
-            thread_names: false,
         }
-    }
-}
-
-impl Default for LayerConfig {
-    fn default() -> Self {
-        Self::compact()
     }
 }
 
@@ -518,12 +497,6 @@ impl Default for Filter {
     }
 }
 
-impl From<Level> for Filter {
-    fn from(level: Level) -> Self {
-        Self::new(level)
-    }
-}
-
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -566,19 +539,6 @@ pub enum AsyncMode {
     },
     #[cfg(feature = "native-async")]
     Native,
-}
-
-#[cfg(acta_async)]
-#[allow(clippy::derivable_impls)]
-impl Default for AsyncMode {
-    fn default() -> Self {
-        #[cfg(feature = "custom-async")]
-        return Self::Custom {
-            buffer_size: DEFAULT_ASYNC_BUFFER_SIZE,
-        };
-        #[cfg(all(feature = "native-async", not(feature = "custom-async")))]
-        return Self::Native;
-    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -631,18 +591,6 @@ impl Writer {
     #[must_use]
     pub fn file(path: impl Into<PathBuf>) -> Self {
         Self::default().with_target(WriterTarget::File(FileConfig::new(path)))
-    }
-
-    #[cfg(acta_async)]
-    #[must_use]
-    pub fn async_stdout() -> Self {
-        Self::default().with_target(WriterTarget::AsyncStdout(AsyncMode::default()))
-    }
-
-    #[cfg(acta_async)]
-    #[must_use]
-    pub fn async_stderr() -> Self {
-        Self::default().with_target(WriterTarget::AsyncStderr(AsyncMode::default()))
     }
 
     #[must_use]
@@ -715,18 +663,6 @@ impl Writer {
         self.style.theme = theme;
         self
     }
-
-    #[must_use]
-    pub const fn with_icons(mut self, icons: Icons) -> Self {
-        self.style.icons = icons;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_labels(mut self, labels: LevelLabels) -> Self {
-        self.style.labels = labels;
-        self
-    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -751,12 +687,6 @@ impl Default for Config {
             filter: Filter::default(),
             writers: vec![Writer::default()],
         }
-    }
-}
-
-impl From<Level> for Config {
-    fn from(level: Level) -> Self {
-        Filter::new(level).into()
     }
 }
 
@@ -801,11 +731,6 @@ impl ConfigBuilder {
         self
     }
 
-    pub fn filter(mut self, filter: Filter) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-
     pub fn with_writer(mut self, writer: Writer) -> Self {
         self.writers.push(writer);
         self
@@ -821,12 +746,6 @@ impl ConfigBuilder {
                 self.writers
             },
         }
-    }
-}
-
-impl From<ConfigBuilder> for Config {
-    fn from(b: ConfigBuilder) -> Self {
-        b.build()
     }
 }
 

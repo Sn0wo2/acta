@@ -16,7 +16,7 @@ compile_error!(
      supported on wasm32; build with `default-features = false` and enable `wasm-console`"
 );
 
-pub use builder::{TracingGuard, build_layer, init};
+pub use builder::{TracingGuard, init};
 #[cfg(feature = "file")]
 pub use config::FileConfig;
 pub use config::{
@@ -50,6 +50,3 @@ pub enum ActaError {
 }
 
 pub type Result<T> = std::result::Result<T, ActaError>;
-
-#[cfg(test)]
-mod test;

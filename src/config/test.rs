@@ -1,6 +1,22 @@
 #![allow(clippy::indexing_slicing)]
 
 use super::*;
+use crate::ActaError;
+use std::io;
+
+#[test]
+fn acta_error_display_io() {
+    let inner = io::Error::new(io::ErrorKind::NotFound, "test error");
+    let msg = format!("{}", ActaError::Io(inner));
+    assert!(msg.contains("I/O error"));
+}
+
+#[test]
+fn acta_error_from_io_error() {
+    let io_err = io::Error::new(io::ErrorKind::PermissionDenied, "access denied");
+    let error: ActaError = io_err.into();
+    assert!(matches!(error, ActaError::Io(_)));
+}
 
 #[test]
 fn config_default() {
@@ -33,14 +49,6 @@ fn config_builder() {
         .build();
     assert_eq!(cfg.filter.as_directive(), "debug");
     assert_eq!(cfg.writers.len(), 1);
-}
-
-#[test]
-fn config_builder_filter() {
-    let cfg = Config::builder()
-        .filter(Filter::from_directive("info,my_crate=debug"))
-        .build();
-    assert_eq!(cfg.filter.as_directive(), "info,my_crate=debug");
 }
 
 #[test]
@@ -81,8 +89,8 @@ fn format_shortcuts() {
 }
 
 #[test]
-fn config_from_level() {
-    let cfg: Config = Level::Debug.into();
+fn config_from_filter() {
+    let cfg: Config = Filter::new(Level::Debug).into();
     assert_eq!(cfg.filter.as_directive(), "debug");
     assert_eq!(cfg.writers.len(), 1);
 }
@@ -171,18 +179,6 @@ fn filter_remove_target_not_exists() {
 }
 
 #[test]
-fn filter_from_level() {
-    let filter: Filter = Level::Warn.into();
-    assert_eq!(filter.as_directive(), "warn");
-}
-
-#[test]
-fn filter_from_level_debug() {
-    let filter: Filter = Level::Debug.into();
-    assert_eq!(filter.as_directive(), "debug");
-}
-
-#[test]
 fn filter_default_is_info() {
     let filter = Filter::default();
     assert_eq!(filter.as_directive(), "info");
@@ -196,4 +192,69 @@ fn writer_file_target() {
         ..Default::default()
     };
     assert!(matches!(w.target, WriterTarget::File(_)));
+}
+
+#[test]
+fn theme_presets_are_distinct() {
+    let s1 = format!("{:?}", Theme::acta());
+    let s2 = format!("{:?}", Theme::monokai());
+    let s3 = format!("{:?}", Theme::dracula());
+    assert_ne!(s1, s2);
+    assert_ne!(s2, s3);
+}
+
+#[test]
+fn theme_all_have_distinct_accent_colors() {
+    let themes = [
+        Theme::acta(),
+        Theme::monokai(),
+        Theme::dracula(),
+        Theme::nord(),
+        Theme::catppuccin_mocha(),
+        Theme::gruvbox(),
+        Theme::one_dark(),
+        Theme::tokyo_night(),
+    ];
+
+    for (i, theme_i) in themes.iter().enumerate() {
+        for theme_j in themes.iter().skip(i + 1) {
+            assert_ne!(
+                format!("{:?}", theme_i.accent),
+                format!("{:?}", theme_j.accent)
+            );
+        }
+    }
+}
+
+#[test]
+fn theme_default_equals_acta() {
+    assert_eq!(
+        format!("{:?}", Theme::default()),
+        format!("{:?}", Theme::acta())
+    );
+}
+
+#[test]
+fn level_labels_short() {
+    let labels = LevelLabels::SHORT;
+    assert_eq!(labels.error, "E");
+    assert_eq!(labels.warn, "W");
+    assert_eq!(labels.info, "I");
+    assert_eq!(labels.debug, "D");
+    assert_eq!(labels.trace, "T");
+}
+
+#[test]
+fn level_labels_medium() {
+    let labels = LevelLabels::MEDIUM;
+    assert_eq!(labels.error, "ERR");
+    assert_eq!(labels.warn, "WRN");
+    assert_eq!(labels.info, "INF");
+    assert_eq!(labels.debug, "DBG");
+    assert_eq!(labels.trace, "TRC");
+}
+
+#[test]
+fn level_labels_default_is_short() {
+    assert_eq!(LevelLabels::default(), LevelLabels::SHORT);
 }

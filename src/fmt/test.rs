@@ -4,7 +4,6 @@ use compact_str::CompactString;
 
 use super::visitor::EventVisitor;
 use super::*;
-use crate::config::LevelLabels;
 use smallvec::SmallVec;
 
 #[test]
@@ -27,15 +26,6 @@ fn formatter_builder() {
     assert_eq!(fmt.path_width, 40);
     assert!(!fmt.show_path);
     assert!(!fmt.show_spans);
-}
-
-#[test]
-fn theme_presets_are_distinct() {
-    let s1 = format!("{:?}", Theme::acta());
-    let s2 = format!("{:?}", Theme::monokai());
-    let s3 = format!("{:?}", Theme::dracula());
-    assert_ne!(s1, s2);
-    assert_ne!(s2, s3);
 }
 
 #[test]
@@ -98,62 +88,6 @@ fn event_visitor_order_preserved_message_extracted() {
             ("x", CompactString::from("1")),
             ("y", CompactString::from("2"))
         ])
-    );
-}
-
-#[test]
-fn level_labels_short() {
-    let labels = LevelLabels::SHORT;
-    assert_eq!(labels.error, "E");
-    assert_eq!(labels.warn, "W");
-    assert_eq!(labels.info, "I");
-    assert_eq!(labels.debug, "D");
-    assert_eq!(labels.trace, "T");
-}
-
-#[test]
-fn level_labels_medium() {
-    let labels = LevelLabels::MEDIUM;
-    assert_eq!(labels.error, "ERR");
-    assert_eq!(labels.warn, "WRN");
-    assert_eq!(labels.info, "INF");
-    assert_eq!(labels.debug, "DBG");
-    assert_eq!(labels.trace, "TRC");
-}
-
-#[test]
-fn level_labels_default_is_short() {
-    assert_eq!(LevelLabels::default(), LevelLabels::SHORT);
-}
-
-#[test]
-fn theme_all_have_distinct_accent_colors() {
-    let themes = [
-        Theme::acta(),
-        Theme::monokai(),
-        Theme::dracula(),
-        Theme::nord(),
-        Theme::catppuccin_mocha(),
-        Theme::gruvbox(),
-        Theme::one_dark(),
-        Theme::tokyo_night(),
-    ];
-
-    for (i, theme_i) in themes.iter().enumerate() {
-        for theme_j in themes.iter().skip(i + 1) {
-            assert_ne!(
-                format!("{:?}", theme_i.accent),
-                format!("{:?}", theme_j.accent)
-            );
-        }
-    }
-}
-
-#[test]
-fn theme_default_equals_acta() {
-    assert_eq!(
-        format!("{:?}", Theme::default()),
-        format!("{:?}", Theme::acta())
     );
 }
 

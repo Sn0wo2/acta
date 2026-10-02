@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 
@@ -6,7 +6,7 @@ use crate::Result;
 use crate::config::Rotation;
 
 #[allow(clippy::single_call_fn)]
-pub(crate) fn new(path: &Path, rotation: Rotation) -> Result<(NonBlocking, WorkerGuard, PathBuf)> {
+pub(crate) fn new(path: &Path, rotation: Rotation) -> Result<(NonBlocking, WorkerGuard)> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -71,7 +71,7 @@ pub(crate) fn new(path: &Path, rotation: Rotation) -> Result<(NonBlocking, Worke
         }
     }
 
-    let path: PathBuf = match std::fs::OpenOptions::new()
+    let path = match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
@@ -93,5 +93,5 @@ pub(crate) fn new(path: &Path, rotation: Rotation) -> Result<(NonBlocking, Worke
         path.file_name().unwrap_or_default(),
     ));
 
-    Ok((writer, guard, path))
+    Ok((writer, guard))
 }

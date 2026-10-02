@@ -3,15 +3,12 @@
 use std::io;
 
 use super::*;
-use crate::builder::{BoxedLayer, ReloadHandle};
-use crate::config::LayerConfig;
+use crate::config::{Filter, Level};
 use tracing_subscriber::Registry;
-use tracing_subscriber::layer::Layered;
-use tracing_subscriber::prelude::*;
 
 type TestSubscriber = Layered<
-    tracing_subscriber::reload::Layer<tracing_subscriber::EnvFilter, builder::InnerSubscriber>,
-    builder::InnerSubscriber,
+    tracing_subscriber::reload::Layer<tracing_subscriber::EnvFilter, InnerSubscriber>,
+    InnerSubscriber,
 >;
 
 fn build_test_guard(level: Level) -> (TracingGuard, TestSubscriber) {
@@ -33,61 +30,8 @@ fn build_test_guard(level: Level) -> (TracingGuard, TestSubscriber) {
         filter,
         #[cfg(feature = "file")]
         worker_guards: Vec::new(),
-        #[cfg(feature = "file")]
-        log_paths: Vec::new(),
     };
     (guard, subscriber)
-}
-
-#[test]
-fn build_layer_all_variants() {
-    let formats = [
-        Format::Pretty(LayerConfig::pretty()),
-        Format::Compact(LayerConfig::compact()),
-        Format::Json(LayerConfig::json()),
-    ];
-    let targets = [WriterTarget::Stdout, WriterTarget::Stderr];
-
-    for format in &formats {
-        for target in &targets {
-            let w = Writer {
-                format: format.clone(),
-                ansi: true,
-                color_depth: None,
-                show_path: true,
-                show_spans: true,
-                time_format: None,
-                style: Style::default(),
-                target: target.clone(),
-            };
-            let _layer = build_layer(&w);
-        }
-    }
-}
-
-#[test]
-fn build_layer_no_ansi() {
-    let w = Writer {
-        ansi: false,
-        ..Default::default()
-    };
-    let _layer = build_layer(&w);
-}
-
-#[test]
-fn build_layer_custom_time() {
-    let w = Writer {
-        time_format: Some(String::from("%Y/%m/%d")),
-        ..Default::default()
-    };
-    let _layer = build_layer(&w);
-}
-
-#[cfg(feature = "nerd")]
-#[test]
-fn build_layer_with_nerd_icons() {
-    let w = Writer::default();
-    let _layer = build_layer(&w);
 }
 
 #[test]
@@ -104,20 +48,6 @@ fn reload_handle_remove_nonexistent_target_level() {
 }
 
 #[test]
-fn acta_error_display_io() {
-    let inner = io::Error::new(io::ErrorKind::NotFound, "test error");
-    let msg = format!("{}", ActaError::Io(inner));
-    assert!(msg.contains("I/O error"));
-}
-
-#[test]
-fn acta_error_from_io_error() {
-    let io_err = io::Error::new(io::ErrorKind::PermissionDenied, "access denied");
-    let error: ActaError = io_err.into();
-    assert!(matches!(error, ActaError::Io(_)));
-}
-
-#[test]
 fn set_filter_with_raw_directive_updates_guard() {
     let (mut guard, subscriber) = build_test_guard(Level::Info);
     let filter = Filter::from_directive("info,my_crate=debug");
@@ -130,7 +60,6 @@ fn set_filter_with_raw_directive_updates_guard() {
         "guard.filter should reflect the raw directive applied via set_filter"
     );
 
-    // Verify actual tracing behavior reflects the filter
     tracing::subscriber::with_default(subscriber, || {
         assert!(
             tracing::enabled!(tracing::Level::INFO),

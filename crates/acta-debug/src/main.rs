@@ -2,11 +2,14 @@
 use std::sync::LazyLock;
 
 use acta::{
-    Config, FileConfig, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style,
-    Theme, Writer, WriterTarget, build_layer, init,
+    ColorDepth, Config, FileConfig, Filter, Format, Formatter, Icons, LayerConfig, Level,
+    LevelLabels, Rotation, Style, Theme, Writer, WriterTarget, init,
 };
 
 use smallvec::{SmallVec, smallvec};
+use tracing_subscriber::Registry;
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::prelude::*;
 
 fn section(title: &str) {
@@ -41,9 +44,58 @@ macro_rules! log {
 }
 
 fn run_with(w: &Writer, f: impl FnOnce()) {
-    let layer = build_layer(w);
-    let subscriber = tracing_subscriber::registry().with(layer);
-    tracing::subscriber::with_default(subscriber, f);
+    let make_writer = match w.target {
+        WriterTarget::Stderr => BoxMakeWriter::new(std::io::stderr),
+        _ => BoxMakeWriter::new(std::io::stdout),
+    };
+    let color_depth = w.color_depth.unwrap_or(if w.ansi {
+        ColorDepth::TrueColor
+    } else {
+        ColorDepth::NoColor
+    });
+
+    let base = tracing_subscriber::fmt::Layer::default()
+        .with_thread_ids(false)
+        .with_thread_names(false)
+        .with_span_events(FmtSpan::NONE)
+        .with_writer(make_writer)
+        .with_ansi(w.ansi);
+
+    let layer: Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync> = match &w.format {
+        Format::Pretty(cfg) => base
+            .pretty()
+            .with_target(cfg.target)
+            .with_file(cfg.file)
+            .with_line_number(cfg.line_number)
+            .boxed(),
+        Format::Compact(cfg) => {
+            let mut formatter = Formatter::new()
+                .with_style(w.style)
+                .with_show_path(w.show_path)
+                .with_show_spans(w.show_spans)
+                .with_color_depth(color_depth);
+            if let Some(tf) = &w.time_format {
+                formatter = formatter.with_time_format(tf.clone());
+            }
+            base.with_target(cfg.target)
+                .with_file(cfg.file)
+                .with_line_number(cfg.line_number)
+                .event_format(formatter)
+                .boxed()
+        }
+        Format::Json(cfg) => base
+            .json()
+            .with_target(cfg.target)
+            .with_file(cfg.file)
+            .with_line_number(cfg.line_number)
+            .with_current_span(cfg.current_span)
+            .with_span_list(cfg.span_list)
+            .flatten_event(cfg.flatten_event)
+            .boxed(),
+        _ => base.boxed(),
+    };
+
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), f);
 }
 
 fn emit_demo(label: &str) {
@@ -75,7 +127,7 @@ static ICONS: LazyLock<SmallVec<[(&str, Icons); 3]>> = LazyLock::new(|| {
         ("unicode", Icons::UNICODE),
         (
             "no-icons",
-            Icons::custom("no-icons", "", "", "", "", "", "", "", "")
+            Icons::custom("no-icons", "", "", "", "", "", "", "")
         ),
         ("nerd", Icons::NERD),
     ]
@@ -277,23 +329,6 @@ fn main() {
         )
     );
 
-    log!(sub, "build_layer");
-    for (desc, w) in [
-        ("default", Writer::default()),
-        (
-            "json+stderr+no-ansi",
-            Writer {
-                format: Format::Json(LayerConfig::json()),
-                ansi: false,
-                target: WriterTarget::Stderr,
-                ..Default::default()
-            },
-        ),
-    ] {
-        drop(build_layer(&w));
-        log!(success, &format!("build_layer({desc})"));
-    }
-
     section("RELOAD via init");
     log!(sub, "init + runtime reload");
     let dir = std::path::Path::new("data/logs/full");
@@ -319,9 +354,6 @@ fn main() {
     match init(config) {
         Ok(mut g) => {
             log!(success, "init");
-            if let Some(p) = g.log_path() {
-                log!(info, &format!("file → {}", p.display()));
-            }
             tracing::info!(init = true, "console + file");
 
             g.set_level(Level::Warn).unwrap();

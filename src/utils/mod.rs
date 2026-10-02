@@ -1,4 +1,4 @@
-#[cfg_attr(not(acta_wasm_console), allow(dead_code))]
+#[cfg(acta_wasm_console)]
 pub(crate) mod ansi_css;
 
 #[cfg(not(target_arch = "wasm32"))]
