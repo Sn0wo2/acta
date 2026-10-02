@@ -17,7 +17,7 @@ fn formatter_defaults() {
 #[test]
 fn formatter_builder() {
     let fmt = Formatter::new()
-        .with_time_format("%Y-%m-%d %H:%M:%S".to_string())
+        .with_time_format("%Y-%m-%d %H:%M:%S")
         .with_path_width(40)
         .with_show_path(false)
         .with_show_spans(false)

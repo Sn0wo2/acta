@@ -115,7 +115,7 @@ impl Icons {
         #[rustfmt::skip] // 让下面两个括号可以对齐
         bracket_open:  "[",
         bracket_close: "]",
-        #[rustfmt::skip] // ↑
+        #[rustfmt::skip]
         time_bracket_open:  "｢",
         time_bracket_close: "｣",
         separator: "┇", // \u{2507}
@@ -308,7 +308,6 @@ pub struct LayerConfig {
     pub current_span: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub span_list: bool,
-    /// Flatten event into a single line (Json only)
     #[cfg_attr(feature = "serde", serde(default))]
     pub flatten_event: bool,
 }

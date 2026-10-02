@@ -44,22 +44,20 @@ macro_rules! log {
 }
 
 fn run_with(w: &Writer, f: impl FnOnce()) {
-    let make_writer = match w.target {
-        WriterTarget::Stderr => BoxMakeWriter::new(std::io::stderr),
-        _ => BoxMakeWriter::new(std::io::stdout),
-    };
     let color_depth = w.color_depth.unwrap_or(if w.ansi {
         ColorDepth::TrueColor
     } else {
         ColorDepth::NoColor
     });
-
     let base = tracing_subscriber::fmt::Layer::default()
         .with_thread_ids(false)
         .with_thread_names(false)
         .with_span_events(FmtSpan::NONE)
-        .with_writer(make_writer)
-        .with_ansi(w.ansi);
+        .with_writer(match w.target {
+            WriterTarget::Stderr => BoxMakeWriter::new(std::io::stderr),
+            _ => BoxMakeWriter::new(std::io::stdout),
+        })
+        .with_ansi(w.ansi && color_depth != ColorDepth::NoColor);
 
     let layer: Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync> = match &w.format {
         Format::Pretty(cfg) => base
@@ -75,7 +73,7 @@ fn run_with(w: &Writer, f: impl FnOnce()) {
                 .with_show_spans(w.show_spans)
                 .with_color_depth(color_depth);
             if let Some(tf) = &w.time_format {
-                formatter = formatter.with_time_format(tf.clone());
+                formatter = formatter.with_time_format(tf);
             }
             base.with_target(cfg.target)
                 .with_file(cfg.file)
@@ -110,16 +108,6 @@ fn emit_all_levels() {
     tracing::info!(users = 42, "info: normal");
     tracing::debug!(query = "SELECT *", took_ms = 3, "debug: query");
     tracing::trace!(state = "idle", "trace: idle");
-}
-
-fn emit_spans() {
-    tracing::info!("no span");
-    let _a = tracing::info_span!("layer1").entered();
-    tracing::info!("span [layer1]");
-    let _b = tracing::info_span!("layer2", depth = 2).entered();
-    tracing::warn!("span [layer1 > layer2{{depth=2}}]");
-    let _c = tracing::debug_span!("layer3").entered();
-    tracing::error!("span [layer1 > layer2 > layer3]");
 }
 
 static ICONS: LazyLock<SmallVec<[(&str, Icons); 3]>> = LazyLock::new(|| {
@@ -305,7 +293,15 @@ fn main() {
             show_spans: true,
             ..Default::default()
         },
-        emit_spans,
+        || {
+            tracing::info!("no span");
+            let _a = tracing::info_span!("layer1").entered();
+            tracing::info!("span [layer1]");
+            let _b = tracing::info_span!("layer2", depth = 2).entered();
+            tracing::warn!("span [layer1 > layer2{{depth=2}}]");
+            let _c = tracing::debug_span!("layer3").entered();
+            tracing::error!("span [layer1 > layer2 > layer3]");
+        },
     );
 
     section("INFRA");
@@ -333,25 +329,26 @@ fn main() {
     log!(sub, "init + runtime reload");
     let dir = std::path::Path::new("data/logs/full");
     drop(std::fs::create_dir_all(dir));
-    let config = Config::builder()
-        .level(Level::Debug)
-        .with_writer(Writer {
-            format: Format::Compact(LayerConfig::compact()),
-            show_path: false,
-            show_spans: false,
-            target: WriterTarget::Stdout,
-            ..Default::default()
-        })
-        .with_writer(Writer {
-            format: Format::Json(LayerConfig::json()),
-            target: WriterTarget::File(
-                FileConfig::new(dir.join("app.log")).with_rotation(Rotation::default()),
-            ),
+    match init(
+        Config::builder()
+            .level(Level::Debug)
+            .with_writer(Writer {
+                format: Format::Compact(LayerConfig::compact()),
+                show_path: false,
+                show_spans: false,
+                target: WriterTarget::Stdout,
+                ..Default::default()
+            })
+            .with_writer(Writer {
+                format: Format::Json(LayerConfig::json()),
+                target: WriterTarget::File(
+                    FileConfig::new(dir.join("app.log")).with_rotation(Rotation::default()),
+                ),
 
-            ..Default::default()
-        })
-        .build();
-    match init(config) {
+                ..Default::default()
+            })
+            .build(),
+    ) {
         Ok(mut g) => {
             log!(success, "init");
             tracing::info!(init = true, "console + file");

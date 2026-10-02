@@ -1,10 +1,13 @@
 #![allow(clippy::expect_used)]
 
 fn main() {
-    let width = acta_build::walk_src_max_width("src", "src/");
-    let out_dir = std::env::var_os("OUT_DIR").expect("Cargo should set OUT_DIR");
-    let path = std::path::Path::new(&out_dir).join("path_width");
-    if let Err(e) = std::fs::write(&path, width.to_string()) {
+    let path =
+        std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo should set OUT_DIR"))
+            .join("path_width");
+    if let Err(e) = std::fs::write(
+        &path,
+        acta_build::walk_src_max_width("src", "src/").to_string(),
+    ) {
         println!("cargo::warning=failed to write {}: {e}", path.display());
     }
     println!("cargo::rerun-if-changed=src");
@@ -17,18 +20,16 @@ fn main() {
         .is_some()
     };
     let wasm = std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32");
-    let wasm_console = wasm && feature("wasm-console");
     let async_any = feature("custom-async") || feature("native-async");
-    let wasm_blocking = wasm && (feature("file") || feature("compress") || async_any);
 
     println!("cargo::rustc-check-cfg=cfg(acta_wasm_console,acta_async,acta_wasm_blocking)");
-    if wasm_console {
+    if wasm && feature("wasm-console") {
         println!("cargo::rustc-cfg=acta_wasm_console");
     }
     if async_any {
         println!("cargo::rustc-cfg=acta_async");
     }
-    if wasm_blocking {
+    if wasm && (feature("file") || feature("compress") || async_any) {
         println!("cargo::rustc-cfg=acta_wasm_blocking");
     }
 }

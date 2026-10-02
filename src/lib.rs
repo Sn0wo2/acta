@@ -7,7 +7,6 @@ pub mod builder;
 pub mod config;
 pub mod fmt;
 pub mod prelude;
-pub(crate) mod utils;
 pub(crate) mod writer;
 
 #[cfg(acta_wasm_blocking)]

@@ -1,5 +1,4 @@
 use std::io::{self, Write};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -7,10 +6,10 @@ use tracing_subscriber::fmt::MakeWriter;
 
 use super::Stream;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct CustomAsyncWriter {
     sender: mpsc::Sender<Vec<u8>>,
-    dropped: Arc<AtomicU64>,
+    dropped: AtomicU64,
 }
 
 impl CustomAsyncWriter {
@@ -31,16 +30,19 @@ impl CustomAsyncWriter {
 
         Self {
             sender,
-            dropped: Arc::new(AtomicU64::new(0)),
+            dropped: AtomicU64::new(0),
         }
     }
 }
 
-impl Write for CustomAsyncWriter {
+impl Write for &CustomAsyncWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.sender.try_send(buf.to_vec()) {
-            Ok(_) => Ok(buf.len()),
-            Err(mpsc::error::TrySendError::Full(_)) => {
+        match self.sender.try_reserve() {
+            Ok(permit) => {
+                permit.send(buf.to_vec());
+                Ok(buf.len())
+            }
+            Err(mpsc::error::TrySendError::Full(())) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
                 if dropped == 1 || dropped.is_multiple_of(1024) {
                     let _unused = writeln!(
@@ -51,7 +53,7 @@ impl Write for CustomAsyncWriter {
                 }
                 Ok(buf.len())
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(io::Error::new(
+            Err(mpsc::error::TrySendError::Closed(())) => Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "async writer closed",
             )),
@@ -63,10 +65,10 @@ impl Write for CustomAsyncWriter {
     }
 }
 
-impl MakeWriter<'_> for CustomAsyncWriter {
-    type Writer = Self;
+impl<'a> MakeWriter<'a> for CustomAsyncWriter {
+    type Writer = &'a Self;
 
-    fn make_writer(&self) -> Self {
-        self.clone()
+    fn make_writer(&'a self) -> Self::Writer {
+        self
     }
 }

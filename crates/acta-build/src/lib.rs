@@ -1,7 +1,7 @@
 //! Build-time helper for [acta](https://crates.io/crates/acta).
 //!
 //! Call from your `build.rs` to compute a sensible default `path_width` for
-//! [`acta::Formatter`] based on the longest source-file path in your project.
+//! `acta::Formatter` based on the longest source-file path in your project.
 //!
 //! # Example
 //!
@@ -35,7 +35,7 @@ use walkdir::WalkDir;
 /// Walk `dir` recursively, find every `.rs` file, and return
 /// `max(path_len_after_stripping(strip_prefix)) + 4`.
 ///
-/// Returns [`FALLBACK_WIDTH`] (40) if `dir` does not exist or contains no .rs files
+/// Returns 40 if `dir` does not exist or contains no .rs files
 #[must_use]
 pub fn walk_src_max_width(dir: impl AsRef<Path>, strip_prefix: &str) -> usize {
     WalkDir::new(dir.as_ref())

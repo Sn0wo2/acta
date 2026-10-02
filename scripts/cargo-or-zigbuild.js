@@ -31,5 +31,7 @@ if (target && target !== host) {
   if (args[0] === "build") args = args.slice(1)
 }
 
-const result = spawnSync(command[0], [...command.slice(1), ...args], { stdio: "inherit" })
-process.exit(result.status ?? 1)
+process.exit(
+  spawnSync(command[0], [...command.slice(1), ...args], { stdio: "inherit" })
+    .status ?? 1,
+)

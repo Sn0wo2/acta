@@ -13,6 +13,3 @@ pub(crate) mod custom_async;
 
 #[cfg(feature = "native-async")]
 pub(crate) mod native_async;
-
-#[cfg(feature = "file")]
-pub(crate) mod file;

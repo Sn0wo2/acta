@@ -3,9 +3,12 @@ use crate::config::Style;
 use crate::config::Theme;
 use chrono::Local;
 use chrono::format::Item;
-use compact_str::format_compact;
+use chrono::format::StrftimeItems;
+use compact_str::CompactString;
+use std::borrow::Cow;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::fmt::Write as _;
+use std::path::Path;
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::fmt::FormattedFields;
 use tracing_subscriber::fmt::format::Writer;
@@ -14,21 +17,20 @@ use tracing_subscriber::registry::LookupSpan;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 mod visitor;
-use crate::utils;
 use visitor::EventVisitor;
 
-// build.rs will generate the path_width file to output dir
 const DEFAULT_PATH_WIDTH: usize = include!(concat!(env!("OUT_DIR"), "/path_width"));
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Formatter {
-    pub(crate) style: Style,
-    pub(crate) color_depth: ColorDepth,
-    pub(crate) time_items: Vec<Item<'static>>,
-    pub(crate) path_width: usize,
-    pub(crate) show_path: bool,
-    pub(crate) show_spans: bool,
+    style: Style,
+    color_depth: ColorDepth,
+    colors: [owo_colors::DynColors; 8],
+    time_items: Vec<Item<'static>>,
+    path_width: usize,
+    show_path: bool,
+    show_spans: bool,
 }
 
 impl Default for Formatter {
@@ -40,31 +42,37 @@ impl Default for Formatter {
 impl Formatter {
     #[must_use]
     pub fn new() -> Self {
-        Self {
+        let mut formatter = Self {
             style: Style::default(),
             color_depth: ColorDepth::TrueColor,
-            time_items: utils::time::parse_time_items("%H:%M:%S"),
+            colors: [owo_colors::DynColors::Ansi(owo_colors::AnsiColors::Default); 8],
+            time_items: StrftimeItems::new("%H:%M:%S").map(Item::to_owned).collect(),
             path_width: DEFAULT_PATH_WIDTH,
             show_path: true,
             show_spans: true,
-        }
+        };
+        formatter.update_colors();
+        formatter
     }
 
     #[must_use]
-    pub const fn with_style(mut self, style: Style) -> Self {
+    pub fn with_style(mut self, style: Style) -> Self {
         self.style = style;
+        self.update_colors();
         self
     }
 
     #[must_use]
-    pub const fn with_theme(mut self, theme: Theme) -> Self {
+    pub fn with_theme(mut self, theme: Theme) -> Self {
         self.style.theme = theme;
+        self.update_colors();
         self
     }
 
     #[must_use]
-    pub const fn with_color_depth(mut self, depth: ColorDepth) -> Self {
+    pub fn with_color_depth(mut self, depth: ColorDepth) -> Self {
         self.color_depth = depth;
+        self.update_colors();
         self
     }
 
@@ -76,8 +84,10 @@ impl Formatter {
 
     /// Timestamps use the local system timezone.
     #[must_use]
-    pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
-        self.time_items = utils::time::parse_time_items(&fmt.into());
+    pub fn with_time_format(mut self, fmt: impl AsRef<str>) -> Self {
+        self.time_items = StrftimeItems::new(fmt.as_ref())
+            .map(Item::to_owned)
+            .collect();
         self
     }
 
@@ -92,6 +102,57 @@ impl Formatter {
         self.show_spans = show;
         self
     }
+
+    fn update_colors(&mut self) {
+        use owo_colors::{AnsiColors, DynColors, XtermColors};
+
+        let Theme {
+            accent,
+            text,
+            secondary,
+            error,
+            warn,
+            info,
+            debug,
+            trace,
+        } = self.style.theme;
+        self.colors =
+            [accent, text, secondary, error, warn, info, debug, trace].map(|(r, g, b)| match self
+                .color_depth
+            {
+                ColorDepth::TrueColor => DynColors::Rgb(r, g, b),
+                ColorDepth::Ansi256 => {
+                    DynColors::Xterm(XtermColors::from(ansi_colours::ansi256_from_rgb((r, g, b))))
+                }
+                ColorDepth::Ansi16 => DynColors::Ansi(
+                    [
+                        AnsiColors::Black,
+                        AnsiColors::Red,
+                        AnsiColors::Green,
+                        AnsiColors::Yellow,
+                        AnsiColors::Blue,
+                        AnsiColors::Magenta,
+                        AnsiColors::Cyan,
+                        AnsiColors::White,
+                        AnsiColors::BrightBlack,
+                        AnsiColors::BrightRed,
+                        AnsiColors::BrightGreen,
+                        AnsiColors::BrightYellow,
+                        AnsiColors::BrightBlue,
+                        AnsiColors::BrightMagenta,
+                        AnsiColors::BrightCyan,
+                        AnsiColors::BrightWhite,
+                    ]
+                    .get(anstyle_lossy::rgb_to_ansi(
+                        (r, g, b).into(),
+                        anstyle_lossy::palette::Palette::default(),
+                    ) as usize)
+                    .copied()
+                    .unwrap_or(AnsiColors::White),
+                ),
+                ColorDepth::NoColor => DynColors::Ansi(AnsiColors::Default),
+            });
+    }
 }
 
 impl<S, N> FormatEvent<S, N> for Formatter
@@ -105,23 +166,25 @@ where
         mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> fmt::Result {
-        let config = &self.style;
-        let theme = &config.theme;
-        let icons = &config.icons;
+        let icons = &self.style.icons;
+        let [accent, text, secondary, error, warn, info, debug, trace] = self.colors;
+        let ansi = writer.has_ansi_escapes() && self.color_depth != ColorDepth::NoColor;
 
-        let (color, level_label) = match *event.metadata().level() {
-            Level::ERROR => (theme.error, config.labels.error),
-            Level::WARN => (theme.warn, config.labels.warn),
-            Level::INFO => (theme.info, config.labels.info),
-            Level::DEBUG => (theme.debug, config.labels.debug),
-            Level::TRACE => (theme.trace, config.labels.trace),
+        let (bg, level_label) = match *event.metadata().level() {
+            Level::ERROR => (error, self.style.labels.error),
+            Level::WARN => (warn, self.style.labels.warn),
+            Level::INFO => (info, self.style.labels.info),
+            Level::DEBUG => (debug, self.style.labels.debug),
+            Level::TRACE => (trace, self.style.labels.trace),
         };
-        let accent =
-            owo_colors::Style::new().color(utils::color::themed(theme.accent, self.color_depth));
-        let text =
-            owo_colors::Style::new().color(utils::color::themed(theme.text, self.color_depth));
-        let secondary =
-            owo_colors::Style::new().color(utils::color::themed(theme.secondary, self.color_depth));
+        let [accent, text, secondary] = [accent, text, secondary].map(|color| {
+            if ansi {
+                owo_colors::Style::new().color(color)
+            } else {
+                owo_colors::Style::new()
+            }
+        });
+        let accent_dimmed = if ansi { accent.dimmed() } else { accent };
 
         write!(writer, "{}", accent.style(icons.time_bracket_open))?;
         write!(
@@ -130,89 +193,91 @@ where
             text.style(Local::now().format_with_items(self.time_items.iter()))
         )?;
 
-        let bg = utils::color::themed(color, self.color_depth);
-
-        let mut on_bg = owo_colors::Style::new().on_color(bg);
-        if icons.name == "nerd" {
-            on_bg = on_bg.remove_bg().color(bg);
-        }
+        let background = if ansi {
+            owo_colors::Style::new().on_color(bg)
+        } else {
+            owo_colors::Style::new()
+        };
+        let on_bg = if ansi && icons.name == "nerd" {
+            background.remove_bg().color(bg)
+        } else {
+            background
+        };
         write!(
             writer,
             " {} {}{}{} {} ",
-            accent.dimmed().style(icons.separator),
+            accent_dimmed.style(icons.separator),
             on_bg.style(icons.bracket_open),
-            owo_colors::Style::new().on_color(bg).style(level_label),
+            background.style(level_label),
             on_bg.style(icons.bracket_close),
             accent.style(icons.time_bracket_close),
         )?;
 
         if self.show_path {
             let max_width = self.path_width;
-            let line = event.metadata().line().unwrap_or(0);
-            let normalized = event.metadata().file().unwrap_or("?").replace('\\', "/");
-            let original = Path::new(&normalized);
-
-            let relative: PathBuf = original
-                .components()
-                .skip_while(|component| component.as_os_str() != "src")
-                .skip(1)
-                .collect();
-
-            let path = if relative.as_os_str().is_empty() {
-                original
+            let source = event.metadata().file().unwrap_or("?");
+            let normalized = if source.contains('\\') {
+                Cow::Owned(source.replace('\\', "/"))
             } else {
-                &relative
+                Cow::Borrowed(source)
             };
-
-            let path_str = path.to_string_lossy().replace('\\', "/");
-            let full = format_compact!("{path_str}:{line}");
-
-            let path_text = if UnicodeWidthStr::width(full.as_str()) <= max_width {
-                format_compact!("{full:>max_width$}")
-            } else {
-                let filename = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(&path_str);
-
-                let file_with_line = format_compact!("{filename}:{line}");
-                let mut truncated = file_with_line.clone();
-
-                if let Some(parent) = path.parent() {
-                    for component in parent.components().rev() {
-                        let component = component.as_os_str().to_string_lossy();
-                        let candidate = format_compact!("{component}/{truncated}");
-
-                        if UnicodeWidthStr::width(candidate.as_str()) > max_width {
-                            break;
-                        }
-
-                        truncated = candidate;
+            let mut components = Path::new(normalized.as_ref()).components();
+            let mut full = CompactString::default();
+            if components
+                .by_ref()
+                .any(|component| component.as_os_str() == "src")
+            {
+                for component in components {
+                    if !full.is_empty() {
+                        full.push('/');
                     }
+                    full.push_str(&component.as_os_str().to_string_lossy());
                 }
-
-                if truncated == file_with_line {
-                    let mut width = 0;
-                    let mut start = full.len();
-
-                    for (i, ch) in full.char_indices().rev() {
+            }
+            if full.is_empty() {
+                full.push_str(&normalized);
+            }
+            write!(full, ":{}", event.metadata().line().unwrap_or(0))?;
+            let mut start = 0;
+            let mut ellipsis = false;
+            if UnicodeWidthStr::width(full.as_str()) > max_width {
+                start = full.rfind('/').map_or(0, |index| index + 1);
+                let filename_start = start;
+                let mut width = UnicodeWidthStr::width(&full[start..]);
+                for component in full[..start.saturating_sub(1)].rsplit('/') {
+                    let candidate_width = width + UnicodeWidthStr::width(component) + 1;
+                    if candidate_width > max_width {
+                        break;
+                    }
+                    start = start.saturating_sub(component.len() + 1);
+                    width = candidate_width;
+                }
+                if start == filename_start {
+                    ellipsis = max_width > 0;
+                    start = full.len();
+                    width = usize::from(ellipsis);
+                    for (index, ch) in full.char_indices().rev() {
                         let char_width = ch.width().unwrap_or(0);
-
-                        if width + char_width >= max_width {
+                        if width + char_width > max_width {
                             break;
                         }
-
                         width += char_width;
-                        start = i;
+                        start = index;
                     }
-
-                    format_compact!("…{}", &full[start..])
-                } else {
-                    format_compact!("{truncated:>max_width$}")
                 }
-            };
-
-            write!(writer, "{}", text.style(path_text))?;
+            }
+            let path_text = &full[start..];
+            write!(
+                writer,
+                "{}",
+                text.style(format_args!(
+                    "{:padding$}{}{path_text}",
+                    "",
+                    if ellipsis { "…" } else { "" },
+                    padding = max_width
+                        .saturating_sub(UnicodeWidthStr::width(path_text) + usize::from(ellipsis))
+                ))
+            )?;
             write!(writer, " {} ", accent.style(icons.arrow))?;
         }
 
@@ -237,40 +302,39 @@ where
             sep = " ";
         }
 
-        if self.show_spans {
-            let scope = ctx
+        if self.show_spans
+            && let Some(scope) = ctx
                 .event_scope()
-                .or_else(|| ctx.lookup_current().map(|s| s.scope()));
+                .or_else(|| ctx.lookup_current().map(|s| s.scope()))
+        {
+            let mut iter = scope.from_root().peekable();
 
-            if let Some(scope) = scope {
-                let mut iter = scope.from_root().peekable();
+            if iter.peek().is_some() {
+                write!(writer, " {}", accent.style("["))?;
 
-                if iter.peek().is_some() {
-                    let accent_dimmed = accent.dimmed();
-                    let text_dimmed = text.dimmed();
+                while let Some(span) = iter.next() {
+                    let is_last = iter.peek().is_none();
+                    let span_style = if is_last || !ansi {
+                        text
+                    } else {
+                        text.dimmed()
+                    };
 
-                    write!(writer, " {}", accent.style("["))?;
+                    write!(writer, "{}", span_style.style(span.name()))?;
 
-                    while let Some(span) = iter.next() {
-                        let is_last = iter.peek().is_none();
-                        let span_style = if is_last { text } else { text_dimmed };
-
-                        write!(writer, "{}", span_style.style(span.name()))?;
-
-                        if let Some(fields) = span.extensions().get::<FormattedFields<N>>() {
-                            let fields_str = fields.fields.as_str();
-                            if !fields_str.is_empty() {
-                                write!(writer, " {}", span_style.style(fields_str))?;
-                            }
-                        }
-
-                        if !is_last {
-                            write!(writer, "{} ", accent_dimmed.style(icons.span_join))?;
+                    if let Some(fields) = span.extensions().get::<FormattedFields<N>>() {
+                        let fields_str = fields.fields.as_str();
+                        if !fields_str.is_empty() {
+                            write!(writer, " {}", span_style.style(fields_str))?;
                         }
                     }
 
-                    write!(writer, "{}", accent.style("]"))?;
+                    if !is_last {
+                        write!(writer, "{} ", accent_dimmed.style(icons.span_join))?;
+                    }
                 }
+
+                write!(writer, "{}", accent.style("]"))?;
             }
         }
 
