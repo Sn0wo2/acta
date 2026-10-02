@@ -42,7 +42,7 @@ impl Write for CustomAsyncWriter {
             Ok(_) => Ok(buf.len()),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
-                if dropped == 1 || dropped % 1024 == 0 {
+                if dropped == 1 || dropped.is_multiple_of(1024) {
                     let _unused = writeln!(
                         io::stderr(),
                         "acta: async writer buffer full ({}), {dropped} log messages dropped so far",
