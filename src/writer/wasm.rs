@@ -1,30 +1,24 @@
 use std::io;
 
-#[derive(Clone, Copy, Debug)]
-enum ConsoleTarget {
-    Log,
-    Error,
-}
+use tracing_subscriber::fmt::MakeWriter;
+use wasm_bindgen::JsValue;
 
-impl ConsoleTarget {
-    fn dispatch(self, msg: &str) {
-        match self {
-            ConsoleTarget::Log => web_sys::console::log_1(&msg.into()),
-            ConsoleTarget::Error => web_sys::console::error_1(&msg.into()),
-        }
-    }
-}
+use super::Stream;
+use crate::utils::ansi_css::ansi_to_css;
+use crate::utils::wasm::{ConsoleTarget, use_css};
 
-#[derive(Debug)]
-pub(crate) struct ConsoleSink {
+pub(crate) struct WasmWriter {
     target: ConsoleTarget,
     buf: Vec<u8>,
 }
 
-impl ConsoleSink {
-    const fn new(target: ConsoleTarget) -> Self {
+impl WasmWriter {
+    pub(crate) const fn new(stream: Stream) -> Self {
         Self {
-            target,
+            target: match stream {
+                Stream::Out => ConsoleTarget::Log,
+                Stream::Err => ConsoleTarget::Error,
+            },
             buf: Vec::new(),
         }
     }
@@ -37,12 +31,31 @@ impl ConsoleSink {
             return;
         }
         let data = std::mem::take(&mut self.buf);
-        let msg = String::from_utf8_lossy(&data);
-        self.target.dispatch(&msg);
+        let msg = String::from_utf8_lossy(&data).into_owned();
+        if use_css() {
+            let (fmt, styles) = ansi_to_css(&msg);
+            let args = std::iter::once(JsValue::from_str(&fmt))
+                .chain(styles.iter().map(|s| JsValue::from_str(s)))
+                .collect::<Vec<_>>();
+            self.target.send(&args);
+        } else {
+            self.target.send(&[JsValue::from_str(&msg)]);
+        }
     }
 }
 
-impl io::Write for ConsoleSink {
+impl MakeWriter<'_> for WasmWriter {
+    type Writer = Self;
+
+    fn make_writer(&self) -> Self {
+        Self {
+            target: self.target,
+            buf: Vec::new(),
+        }
+    }
+}
+
+impl io::Write for WasmWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.buf.extend_from_slice(buf);
         if buf.contains(&b'\n') {
@@ -57,18 +70,8 @@ impl io::Write for ConsoleSink {
     }
 }
 
-impl Drop for ConsoleSink {
+impl Drop for WasmWriter {
     fn drop(&mut self) {
         self.emit();
     }
-}
-
-#[must_use]
-pub(crate) const fn log_sink() -> ConsoleSink {
-    ConsoleSink::new(ConsoleTarget::Log)
-}
-
-#[must_use]
-pub(crate) const fn error_sink() -> ConsoleSink {
-    ConsoleSink::new(ConsoleTarget::Error)
 }

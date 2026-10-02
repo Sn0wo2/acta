@@ -14,6 +14,7 @@ pub enum ColorDepth {
     Ansi16,
     NoColor,
 }
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct LevelLabels {
@@ -43,8 +44,8 @@ impl LevelLabels {
 
     pub const LONG: Self = Self {
         error: "ERROR",
-        warn: " WARN",
-        info: " INFO",
+        warn: "WARN",
+        info: "INFO",
         debug: "DEBUG",
         trace: "TRACE",
     };
@@ -467,16 +468,6 @@ impl Level {
     }
 }
 
-/// Tracing filter directive.
-///
-/// Built either from a `Level` (structured) or a raw `EnvFilter`-compatible
-/// directive string. Per-target overrides added via [`with_target`] are
-/// appended after the base; [`remove_target`] only removes entries that were
-/// added structurally — entries embedded in a raw base string cannot be
-/// removed without rebuilding the filter.
-///
-/// [`with_target`]: Filter::with_target
-/// [`remove_target`]: Filter::remove_target
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -493,15 +484,6 @@ impl Filter {
         }
     }
 
-    /// Build a `Filter` from a raw `EnvFilter`-style directive string,
-    /// e.g. `"info,my_crate=debug,my_crate::db=trace"`.
-    pub fn from_directive(directive: impl Into<CompactString>) -> Self {
-        Self {
-            base: directive.into(),
-            targets: HashMap::new(),
-        }
-    }
-
     pub fn with_target(&mut self, target: impl Into<CompactString>, level: Level) -> &mut Self {
         self.targets.insert(target.into(), level);
         self
@@ -509,6 +491,13 @@ impl Filter {
 
     pub fn remove_target(&mut self, target: &str) -> bool {
         self.targets.remove(target).is_some()
+    }
+
+    pub fn from_directive(directive: impl Into<CompactString>) -> Self {
+        Self {
+            base: directive.into(),
+            targets: HashMap::new(),
+        }
     }
 
     pub fn as_directive(&self) -> String {
@@ -547,13 +536,12 @@ pub enum WriterTarget {
     Stderr,
     #[cfg(feature = "file")]
     File(FileConfig),
-    #[cfg(any(feature = "custom-async", feature = "native-async"))]
+    #[cfg(acta_async)]
     AsyncStdout(AsyncMode),
-    #[cfg(any(feature = "custom-async", feature = "native-async"))]
+    #[cfg(acta_async)]
     AsyncStderr(AsyncMode),
 }
 
-/// Default bounded-channel capacity for [`AsyncMode::Custom`] writers.
 #[cfg(feature = "custom-async")]
 pub const DEFAULT_ASYNC_BUFFER_SIZE: usize = 4096;
 
@@ -562,7 +550,7 @@ const fn default_async_buffer_size() -> usize {
     DEFAULT_ASYNC_BUFFER_SIZE
 }
 
-#[cfg(any(feature = "custom-async", feature = "native-async"))]
+#[cfg(acta_async)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -571,8 +559,6 @@ const fn default_async_buffer_size() -> usize {
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
 pub enum AsyncMode {
-    /// Tokio-backed writer with a configurable bounded-channel `buffer_size`
-    /// (number of queued log messages before new ones are dropped).
     #[cfg(feature = "custom-async")]
     Custom {
         #[cfg_attr(feature = "serde", serde(default = "default_async_buffer_size"))]
@@ -582,7 +568,7 @@ pub enum AsyncMode {
     Native,
 }
 
-#[cfg(any(feature = "custom-async", feature = "native-async"))]
+#[cfg(acta_async)]
 #[allow(clippy::derivable_impls)]
 impl Default for AsyncMode {
     fn default() -> Self {
@@ -647,19 +633,20 @@ impl Writer {
         Self::default().with_target(WriterTarget::File(FileConfig::new(path)))
     }
 
-    #[cfg(any(feature = "custom-async", feature = "native-async"))]
+    #[cfg(acta_async)]
     #[must_use]
     pub fn async_stdout() -> Self {
         Self::default().with_target(WriterTarget::AsyncStdout(AsyncMode::default()))
     }
 
-    #[cfg(any(feature = "custom-async", feature = "native-async"))]
+    #[cfg(acta_async)]
     #[must_use]
     pub fn async_stderr() -> Self {
         Self::default().with_target(WriterTarget::AsyncStderr(AsyncMode::default()))
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)]
     pub fn with_target(mut self, target: WriterTarget) -> Self {
         self.target = target;
         self
@@ -809,13 +796,11 @@ pub struct ConfigBuilder {
 }
 
 impl ConfigBuilder {
-    /// Convenience: set the filter to a single level.
     pub fn level(mut self, level: Level) -> Self {
         self.filter = Some(Filter::new(level));
         self
     }
 
-    /// Set the full filter (for raw directives or pre-built filters).
     pub fn filter(mut self, filter: Filter) -> Self {
         self.filter = Some(filter);
         self

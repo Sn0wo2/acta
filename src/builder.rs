@@ -1,59 +1,23 @@
-#[cfg(any(feature = "custom-async", feature = "native-async"))]
-use crate::config::AsyncMode;
-use crate::config::{ColorDepth, Config, Filter, Format, Writer, WriterTarget};
-use crate::fmt::Formatter;
-#[cfg(not(all(target_arch = "wasm32", feature = "wasm-console")))]
-use std::io;
 #[cfg(feature = "file")]
 use std::path::PathBuf;
+#[cfg(feature = "file")]
+use tracing_appender::non_blocking::WorkerGuard;
+
+#[cfg(feature = "file")]
+use crate::config::WriterTarget;
+use crate::config::{ColorDepth, Config, Filter, Format, Writer};
+use crate::fmt::Formatter;
+use crate::writer;
 use tracing_subscriber::Registry;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::layer::Layered;
 use tracing_subscriber::prelude::*;
 
-#[cfg(any(
-    feature = "file",
-    feature = "custom-async",
-    feature = "native-async",
-    all(target_arch = "wasm32", feature = "wasm-console")
-))]
-use crate::writer;
-
 pub(crate) type BoxedLayer = Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>;
 pub(crate) type InnerSubscriber = Layered<Vec<BoxedLayer>, Registry>;
 pub(crate) type ReloadHandle =
     tracing_subscriber::reload::Handle<tracing_subscriber::EnvFilter, InnerSubscriber>;
-
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(clippy::single_call_fn)]
-fn detect_color_depth(target: &WriterTarget) -> ColorDepth {
-    use supports_color::Stream;
-    let stream = match *target {
-        WriterTarget::Stdout => Stream::Stdout,
-        WriterTarget::Stderr => Stream::Stderr,
-        #[cfg(feature = "file")]
-        WriterTarget::File(_) => return ColorDepth::NoColor,
-        #[cfg(any(feature = "custom-async", feature = "native-async"))]
-        WriterTarget::AsyncStdout(_) => Stream::Stdout,
-        #[cfg(any(feature = "custom-async", feature = "native-async"))]
-        WriterTarget::AsyncStderr(_) => Stream::Stderr,
-    };
-
-    if let Some(level) = supports_color::on_cached(stream) {
-        if level.has_16m {
-            return ColorDepth::TrueColor;
-        }
-        if level.has_256 {
-            return ColorDepth::Ansi256;
-        }
-        if level.has_basic {
-            return ColorDepth::Ansi16;
-        }
-    }
-
-    ColorDepth::NoColor
-}
 
 fn build_fmt_layer(
     writer: &Writer,
@@ -77,7 +41,7 @@ fn build_fmt_layer(
             .boxed(),
         Format::Compact(cfg) => {
             let mut formatter = Formatter::new()
-                .with_style_config(writer.style)
+                .with_style(writer.style)
                 .with_show_path(writer.show_path)
                 .with_show_spans(writer.show_spans)
                 .with_color_depth(color_depth);
@@ -102,106 +66,83 @@ fn build_fmt_layer(
     }
 }
 
-/// Build a tracing layer from a [`Writer`] configuration.
-///
-/// Useful for ad-hoc subscriber setups such as demos or tests.
-/// For production use, prefer [`init`] which handles file layers and
-/// reload guards automatically.
-pub fn build_layer(writer: &Writer) -> BoxedLayer {
-    #[cfg(not(target_arch = "wasm32"))]
-    let color_depth = writer.color_depth.unwrap_or_else(|| {
+#[cfg(not(target_arch = "wasm32"))]
+fn resolve_color_depth(writer: &Writer) -> ColorDepth {
+    writer.color_depth.unwrap_or_else(|| {
         if writer.ansi {
-            detect_color_depth(&writer.target)
+            crate::utils::terminal::detect_color_depth(&writer.target)
         } else {
             ColorDepth::NoColor
         }
-    });
-    #[cfg(target_arch = "wasm32")]
-    let color_depth = writer.color_depth.unwrap_or(ColorDepth::NoColor);
-
-    let make_writer = match &writer.target {
-        #[cfg(not(all(target_arch = "wasm32", feature = "wasm-console")))]
-        WriterTarget::Stdout => BoxMakeWriter::new(io::stdout),
-        #[cfg(all(target_arch = "wasm32", feature = "wasm-console"))]
-        WriterTarget::Stdout => BoxMakeWriter::new(writer::wasm::log_sink),
-        #[cfg(not(all(target_arch = "wasm32", feature = "wasm-console")))]
-        WriterTarget::Stderr => BoxMakeWriter::new(io::stderr),
-        #[cfg(all(target_arch = "wasm32", feature = "wasm-console"))]
-        WriterTarget::Stderr => BoxMakeWriter::new(writer::wasm::error_sink),
-        #[cfg(feature = "custom-async")]
-        WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size }) => BoxMakeWriter::new(
-            writer::async_writer_for(writer::AsyncWriterTarget::Stdout, *buffer_size),
-        ),
-        #[cfg(feature = "native-async")]
-        WriterTarget::AsyncStdout(AsyncMode::Native) => BoxMakeWriter::new(
-            writer::native_async_writer(writer::AsyncWriterTarget::Stdout),
-        ),
-        #[cfg(feature = "custom-async")]
-        WriterTarget::AsyncStderr(AsyncMode::Custom { buffer_size }) => BoxMakeWriter::new(
-            writer::async_writer_for(writer::AsyncWriterTarget::Stderr, *buffer_size),
-        ),
-        #[cfg(feature = "native-async")]
-        WriterTarget::AsyncStderr(AsyncMode::Native) => BoxMakeWriter::new(
-            writer::native_async_writer(writer::AsyncWriterTarget::Stderr),
-        ),
-        #[cfg(feature = "file")]
-        WriterTarget::File(_) => BoxMakeWriter::new(io::sink),
-    };
-
-    build_fmt_layer(writer, make_writer, writer.ansi, color_depth)
+    })
 }
 
-/// Initialize the global tracing subscriber.
-///
-/// Accepts anything convertible into a [`Config`]: a [`Level`](crate::Level),
-/// a [`Filter`], a single [`Writer`], a `Vec<Writer>`, a
-/// [`ConfigBuilder`](crate::ConfigBuilder), or a full [`Config`].
-///
-/// ```no_run
-/// let _guard = acta::init(acta::Level::Debug)?;
-/// # Ok::<(), acta::ActaError>(())
-/// ```
+#[cfg(target_arch = "wasm32")]
+fn resolve_color_depth(writer: &Writer) -> ColorDepth {
+    writer.color_depth.unwrap_or(if writer.ansi {
+        ColorDepth::TrueColor
+    } else {
+        ColorDepth::NoColor
+    })
+}
+
+pub fn build_layer(writer: &Writer) -> BoxedLayer {
+    build_fmt_layer(
+        writer,
+        writer::make_writer(&writer.target),
+        writer.ansi,
+        resolve_color_depth(writer),
+    )
+}
+
 pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
     let Config { filter, writers } = config.into();
     let mut layers: Vec<BoxedLayer> = Vec::with_capacity(writers.len());
 
     #[cfg(feature = "file")]
-    let mut file_guards = Vec::new();
-    #[cfg(feature = "file")]
-    let mut log_paths = Vec::new();
+    let (mut worker_guards, mut log_paths) = (Vec::new(), Vec::new());
 
     for writer in writers {
+        let built = writer::build_writer(&writer.target)?;
+
         #[cfg(feature = "file")]
-        if let WriterTarget::File(ref file_config) = writer.target {
-            let (file_writer, guard, resolved_path) =
-                writer::file::build_file_layer(&file_config.path, file_config.rotation)?;
-            file_guards.push(guard);
-            log_paths.push(resolved_path);
-            layers.push(build_fmt_layer(
-                &writer,
-                BoxMakeWriter::new(file_writer),
-                false,
-                ColorDepth::NoColor,
-            ));
-            continue;
+        if let Some((guard, path)) = built.file {
+            worker_guards.push(guard);
+            log_paths.push(path);
         }
 
-        layers.push(build_layer(&writer));
+        #[cfg(feature = "file")]
+        let is_file = matches!(writer.target, WriterTarget::File(_));
+        #[cfg(not(feature = "file"))]
+        let is_file = false;
+
+        let (ansi, color_depth) = if is_file {
+            (false, ColorDepth::NoColor)
+        } else {
+            (writer.ansi, resolve_color_depth(&writer))
+        };
+        layers.push(build_fmt_layer(
+            &writer,
+            built.make_writer,
+            ansi,
+            color_depth,
+        ));
     }
+    let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(
+        tracing_subscriber::EnvFilter::try_new(filter.as_directive())?,
+    );
 
-    let env_filter = tracing_subscriber::EnvFilter::try_new(filter.as_directive())?;
-    let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(env_filter);
+    tracing_log::LogTracer::init()?;
 
-    let subscriber = Registry::default().with(layers).with(env_filter_layer);
-
-    let _ = tracing_log::LogTracer::init();
-    tracing::subscriber::set_global_default(subscriber)?;
+    tracing::subscriber::set_global_default(
+        Registry::default().with(layers).with(env_filter_layer),
+    )?;
 
     Ok(TracingGuard {
         raw,
         filter,
         #[cfg(feature = "file")]
-        worker_guards: file_guards,
+        worker_guards,
         #[cfg(feature = "file")]
         log_paths,
     })
@@ -212,7 +153,7 @@ pub struct TracingGuard {
     pub(crate) raw: ReloadHandle,
     pub(crate) filter: Filter,
     #[cfg(feature = "file")]
-    pub(crate) worker_guards: Vec<writer::LogHandle>,
+    pub(crate) worker_guards: Vec<WorkerGuard>,
     #[cfg(feature = "file")]
     pub(crate) log_paths: Vec<PathBuf>,
 }
@@ -222,9 +163,9 @@ impl std::fmt::Debug for TracingGuard {
         let mut d = f.debug_struct("TracingGuard");
         let _ = d.field("filter", &self.filter);
         #[cfg(feature = "file")]
-        let _ = d.field("log_paths", &self.log_paths);
-        #[cfg(feature = "file")]
-        let _ = d.field("num_file_guards", &self.worker_guards.len());
+        let _ = d
+            .field("log_paths", &self.log_paths)
+            .field("num_file_guards", &self.worker_guards.len());
         d.finish_non_exhaustive()
     }
 }

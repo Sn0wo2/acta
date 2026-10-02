@@ -32,14 +32,10 @@
 use std::path::Path;
 use walkdir::WalkDir;
 
-const FALLBACK_WIDTH: usize = 40;
-const PADDING: usize = 4;
-
 /// Walk `dir` recursively, find every `.rs` file, and return
 /// `max(path_len_after_stripping(strip_prefix)) + 4`.
 ///
-/// Returns [`FALLBACK_WIDTH`] (40) if `dir` does not exist or contains no
-/// `.rs` files — safe to call unconditionally from a `build.rs`.
+/// Returns [`FALLBACK_WIDTH`] (40) if `dir` does not exist or contains no .rs files
 #[must_use]
 pub fn walk_src_max_width(dir: impl AsRef<Path>, strip_prefix: &str) -> usize {
     WalkDir::new(dir.as_ref())
@@ -51,5 +47,5 @@ pub fn walk_src_max_width(dir: impl AsRef<Path>, strip_prefix: &str) -> usize {
             display.strip_prefix(strip_prefix).unwrap_or(&display).len()
         })
         .max()
-        .map_or(FALLBACK_WIDTH, |max| max + PADDING)
+        .map_or(40, |max| max + 4)
 }

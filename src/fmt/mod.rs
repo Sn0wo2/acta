@@ -1,31 +1,34 @@
-use crate::color::rgb_to_owo;
 use crate::config::ColorDepth;
-use crate::config::{Icons, LevelLabels, Style, Theme};
+use crate::config::Style;
+use crate::config::Theme;
 use chrono::Local;
-use compact_str::{CompactString, format_compact};
-use owo_colors::Style as OwoStyle;
+use chrono::format::Item;
+use compact_str::format_compact;
 use std::fmt;
-
+use std::path::{Path, PathBuf};
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::fmt::FormattedFields;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent};
 use tracing_subscriber::registry::LookupSpan;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 mod visitor;
+use crate::utils;
 use visitor::EventVisitor;
 
+// build.rs will generate the path_width file to output dir
 const DEFAULT_PATH_WIDTH: usize = include!(concat!(env!("OUT_DIR"), "/path_width"));
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Formatter {
-    pub(crate) time_items: Vec<chrono::format::Item<'static>>,
+    pub(crate) style: Style,
+    pub(crate) color_depth: ColorDepth,
+    pub(crate) time_items: Vec<Item<'static>>,
     pub(crate) path_width: usize,
     pub(crate) show_path: bool,
     pub(crate) show_spans: bool,
-    pub(crate) style: Style,
-    pub(crate) color_depth: ColorDepth,
 }
 
 impl Default for Formatter {
@@ -38,36 +41,18 @@ impl Formatter {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            time_items: Self::parse_time_items("%H:%M:%S"),
+            style: Style::default(),
+            color_depth: ColorDepth::TrueColor,
+            time_items: utils::time::parse_time_items("%H:%M:%S"),
             path_width: DEFAULT_PATH_WIDTH,
             show_path: true,
             show_spans: true,
-            style: Style::default(),
-            color_depth: ColorDepth::TrueColor,
         }
     }
 
-    /// Returns a copy of the current style configuration.
     #[must_use]
-    pub const fn style_config(&self) -> Style {
-        self.style
-    }
-
-    #[must_use]
-    pub const fn with_style_config(mut self, style: Style) -> Self {
+    pub const fn with_style(mut self, style: Style) -> Self {
         self.style = style;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_icons(mut self, icons: Icons) -> Self {
-        self.style.icons = icons;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_labels(mut self, labels: LevelLabels) -> Self {
-        self.style.labels = labels;
         self
     }
 
@@ -89,26 +74,11 @@ impl Formatter {
         self
     }
 
-    /// Sets the timestamp format. Timestamps use the local system timezone.
+    /// Timestamps use the local system timezone.
     #[must_use]
     pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
-        let fmt = fmt.into();
-        self.time_items = Self::parse_time_items(&fmt);
+        self.time_items = utils::time::parse_time_items(&fmt.into());
         self
-    }
-
-    fn parse_time_items(fmt: &str) -> Vec<chrono::format::Item<'static>> {
-        chrono::format::StrftimeItems::new(fmt)
-            .map(chrono::format::Item::to_owned)
-            .collect()
-    }
-
-    fn themed(&self, (r, g, b): (u8, u8, u8)) -> OwoStyle {
-        rgb_to_owo((r, g, b), self.color_depth, false)
-    }
-
-    fn themed_dimmed(&self, (r, g, b): (u8, u8, u8)) -> OwoStyle {
-        rgb_to_owo((r >> 2, g >> 2, b >> 2), self.color_depth, false)
     }
 
     #[must_use]
@@ -121,171 +91,6 @@ impl Formatter {
     pub const fn with_show_spans(mut self, show: bool) -> Self {
         self.show_spans = show;
         self
-    }
-
-    fn format_path(&self, file: &str, line: u32) -> CompactString {
-        let max_width = self.path_width;
-        let relative = file
-            .split_once("src/")
-            .map(|(_, tail)| tail)
-            .or_else(|| file.split_once("src\\").map(|(_, tail)| tail))
-            .unwrap_or(file);
-
-        let path_str = if relative.contains('\\') {
-            relative.replace('\\', "/").into()
-        } else {
-            CompactString::new(relative)
-        };
-
-        let full = format_compact!("{path_str}:{line}");
-        if full.len() <= max_width {
-            return format_compact!("{full:>max_width$}");
-        }
-
-        if let Some(last_slash) = path_str.rfind('/') {
-            let filename = &path_str[last_slash + 1..];
-            let file_with_line = format_compact!("{filename}:{line}");
-
-            if file_with_line.len() + 2 <= max_width {
-                let dir_part = &path_str[..last_slash];
-                let mut start = dir_part
-                    .len()
-                    .saturating_sub(max_width.saturating_sub(file_with_line.len() + 1));
-                while start < dir_part.len() && !dir_part.is_char_boundary(start) {
-                    start += 1;
-                }
-                let dir_tail = &dir_part[start..];
-                let clean_dir =
-                    if start > 0 && dir_part.as_bytes().get(start - 1).copied() == Some(b'/') {
-                        dir_tail
-                    } else {
-                        dir_tail.find('/').map_or(dir_tail, |i| &dir_tail[i + 1..])
-                    };
-
-                let formatted = format_compact!("{clean_dir}/{file_with_line}");
-                return format_compact!("{formatted:>max_width$}");
-            }
-        }
-
-        // Truncate from left with ellipsis, guarding char boundaries
-        let mut adj = full.len().saturating_sub(max_width.saturating_sub(1));
-        while adj < full.len() && !full.is_char_boundary(adj) {
-            adj += 1;
-        }
-        format_compact!("…{}", &full[adj..])
-    }
-
-    fn write_time(&self, writer: &mut Writer<'_>, theme: &Theme) -> fmt::Result {
-        let now = Local::now();
-        let style = self.themed(theme.text);
-        write!(
-            writer,
-            "{}",
-            style.style(now.format_with_items(self.time_items.iter()))
-        )
-    }
-
-    fn format_path_section(
-        &self,
-        writer: &mut Writer<'_>,
-        event: &Event<'_>,
-        theme: &Theme,
-        icons: &Icons,
-    ) -> fmt::Result {
-        write!(
-            writer,
-            "{}",
-            self.themed_dimmed(theme.text).style(self.format_path(
-                event.metadata().file().unwrap_or("?"),
-                event.metadata().line().unwrap_or(0),
-            ))
-        )?;
-        write!(writer, " {} ", self.themed(theme.accent).style(icons.arrow))
-    }
-
-    fn format_fields(
-        &self,
-        writer: &mut Writer<'_>,
-        event: &Event<'_>,
-        theme: &Theme,
-    ) -> fmt::Result {
-        let mut visitor = EventVisitor::default();
-        event.record(&mut visitor);
-
-        let key_style = self.themed(theme.secondary);
-        let eq_style = self.themed(theme.accent);
-        let value_style = self.themed(theme.text);
-
-        let mut sep = if let Some(msg) = visitor.message {
-            write!(writer, "{}", value_style.style(msg))?;
-            " "
-        } else {
-            ""
-        };
-
-        for (k, v) in &visitor.fields {
-            write!(
-                writer,
-                "{sep}{}{}{}",
-                key_style.style(k),
-                eq_style.style("="),
-                value_style.style(v)
-            )?;
-            sep = " ";
-        }
-
-        Ok(())
-    }
-
-    fn format_spans<S, N>(
-        &self,
-        writer: &mut Writer<'_>,
-        ctx: &FmtContext<'_, S, N>,
-        theme: &Theme,
-        icons: &Icons,
-    ) -> fmt::Result
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-        N: for<'a> tracing_subscriber::fmt::FormatFields<'a> + 'static,
-    {
-        let Some(scope) = ctx
-            .event_scope()
-            .or_else(|| ctx.lookup_current().map(|s| s.scope()))
-        else {
-            return Ok(());
-        };
-
-        let mut iter = scope.from_root().peekable();
-        if iter.peek().is_none() {
-            return Ok(());
-        }
-
-        let accent = self.themed(theme.accent);
-        let accent_dimmed = self.themed_dimmed(theme.accent);
-        let text = self.themed(theme.text);
-        let text_dimmed = self.themed_dimmed(theme.text);
-
-        write!(writer, " {}", accent.style("["))?;
-
-        while let Some(span) = iter.next() {
-            let is_last = iter.peek().is_none();
-            let span_style = if is_last { text } else { text_dimmed };
-
-            write!(writer, "{}", span_style.style(span.name()))?;
-
-            if let Some(fields) = span.extensions().get::<FormattedFields<N>>() {
-                let fields_str = fields.fields.as_str();
-                if !fields_str.is_empty() {
-                    write!(writer, " {}", span_style.style(fields_str))?;
-                }
-            }
-
-            if !is_last {
-                write!(writer, "{} ", accent_dimmed.style(icons.span_join))?;
-            }
-        }
-
-        write!(writer, "{}", accent.style("]"))
     }
 }
 
@@ -301,46 +106,172 @@ where
         event: &Event<'_>,
     ) -> fmt::Result {
         let config = &self.style;
+        let theme = &config.theme;
+        let icons = &config.icons;
 
-        let level = event.metadata().level();
-
-        let (color, level_label) = match *level {
-            Level::ERROR => (config.theme.error, config.labels.error),
-            Level::WARN => (config.theme.warn, config.labels.warn),
-            Level::INFO => (config.theme.info, config.labels.info),
-            Level::DEBUG => (config.theme.debug, config.labels.debug),
-            Level::TRACE => (config.theme.trace, config.labels.trace),
+        let (color, level_label) = match *event.metadata().level() {
+            Level::ERROR => (theme.error, config.labels.error),
+            Level::WARN => (theme.warn, config.labels.warn),
+            Level::INFO => (theme.info, config.labels.info),
+            Level::DEBUG => (theme.debug, config.labels.debug),
+            Level::TRACE => (theme.trace, config.labels.trace),
         };
+        let accent =
+            owo_colors::Style::new().color(utils::color::themed(theme.accent, self.color_depth));
+        let text =
+            owo_colors::Style::new().color(utils::color::themed(theme.text, self.color_depth));
+        let secondary =
+            owo_colors::Style::new().color(utils::color::themed(theme.secondary, self.color_depth));
 
-        let on_bg = rgb_to_owo(color, self.color_depth, true);
-        let bracket_style = if config.icons.name == "nerd" {
-            self.themed(color)
-        } else {
-            on_bg
-        };
-        let accent = self.themed(config.theme.accent);
-        let accent_dimmed = self.themed_dimmed(config.theme.accent);
+        write!(writer, "{}", accent.style(icons.time_bracket_open))?;
+        write!(
+            writer,
+            "{}",
+            text.style(Local::now().format_with_items(self.time_items.iter()))
+        )?;
 
-        write!(writer, "{}", accent.style(config.icons.time_bracket_open))?;
-        self.write_time(&mut writer, &config.theme)?;
+        let bg = utils::color::themed(color, self.color_depth);
+
+        let mut on_bg = owo_colors::Style::new().on_color(bg);
+        if icons.name == "nerd" {
+            on_bg = on_bg.remove_bg().color(bg);
+        }
         write!(
             writer,
             " {} {}{}{} {} ",
-            accent_dimmed.style(config.icons.separator),
-            bracket_style.style(config.icons.bracket_open),
-            on_bg.style(level_label),
-            bracket_style.style(config.icons.bracket_close),
-            accent.style(config.icons.time_bracket_close),
+            accent.dimmed().style(icons.separator),
+            on_bg.style(icons.bracket_open),
+            owo_colors::Style::new().on_color(bg).style(level_label),
+            on_bg.style(icons.bracket_close),
+            accent.style(icons.time_bracket_close),
         )?;
 
         if self.show_path {
-            self.format_path_section(&mut writer, event, &config.theme, &config.icons)?;
+            let max_width = self.path_width;
+            let line = event.metadata().line().unwrap_or(0);
+            let normalized = event.metadata().file().unwrap_or("?").replace('\\', "/");
+            let original = Path::new(&normalized);
+
+            let relative: PathBuf = original
+                .components()
+                .skip_while(|component| component.as_os_str() != "src")
+                .skip(1)
+                .collect();
+
+            let path = if relative.as_os_str().is_empty() {
+                original
+            } else {
+                &relative
+            };
+
+            let path_str = path.to_string_lossy().replace('\\', "/");
+            let full = format_compact!("{path_str}:{line}");
+
+            let path_text = if UnicodeWidthStr::width(full.as_str()) <= max_width {
+                format_compact!("{full:>max_width$}")
+            } else {
+                let filename = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&path_str);
+
+                let file_with_line = format_compact!("{filename}:{line}");
+                let mut truncated = file_with_line.clone();
+
+                if let Some(parent) = path.parent() {
+                    for component in parent.components().rev() {
+                        let component = component.as_os_str().to_string_lossy();
+                        let candidate = format_compact!("{component}/{truncated}");
+
+                        if UnicodeWidthStr::width(candidate.as_str()) > max_width {
+                            break;
+                        }
+
+                        truncated = candidate;
+                    }
+                }
+
+                if truncated == file_with_line {
+                    let mut width = 0;
+                    let mut start = full.len();
+
+                    for (i, ch) in full.char_indices().rev() {
+                        let char_width = ch.width().unwrap_or(0);
+
+                        if width + char_width >= max_width {
+                            break;
+                        }
+
+                        width += char_width;
+                        start = i;
+                    }
+
+                    format_compact!("…{}", &full[start..])
+                } else {
+                    format_compact!("{truncated:>max_width$}")
+                }
+            };
+
+            write!(writer, "{}", text.style(path_text))?;
+            write!(writer, " {} ", accent.style(icons.arrow))?;
         }
 
-        self.format_fields(&mut writer, event, &config.theme)?;
+        let mut visitor = EventVisitor::default();
+        event.record(&mut visitor);
+
+        let mut sep = if let Some(msg) = visitor.message {
+            write!(writer, "{}", text.style(msg))?;
+            " "
+        } else {
+            ""
+        };
+
+        for (k, v) in &visitor.fields {
+            write!(
+                writer,
+                "{sep}{}{}{}",
+                secondary.style(k),
+                accent.style("="),
+                text.style(v)
+            )?;
+            sep = " ";
+        }
 
         if self.show_spans {
-            self.format_spans(&mut writer, ctx, &config.theme, &config.icons)?;
+            let scope = ctx
+                .event_scope()
+                .or_else(|| ctx.lookup_current().map(|s| s.scope()));
+
+            if let Some(scope) = scope {
+                let mut iter = scope.from_root().peekable();
+
+                if iter.peek().is_some() {
+                    let accent_dimmed = accent.dimmed();
+                    let text_dimmed = text.dimmed();
+
+                    write!(writer, " {}", accent.style("["))?;
+
+                    while let Some(span) = iter.next() {
+                        let is_last = iter.peek().is_none();
+                        let span_style = if is_last { text } else { text_dimmed };
+
+                        write!(writer, "{}", span_style.style(span.name()))?;
+
+                        if let Some(fields) = span.extensions().get::<FormattedFields<N>>() {
+                            let fields_str = fields.fields.as_str();
+                            if !fields_str.is_empty() {
+                                write!(writer, " {}", span_style.style(fields_str))?;
+                            }
+                        }
+
+                        if !is_last {
+                            write!(writer, "{} ", accent_dimmed.style(icons.span_join))?;
+                        }
+                    }
+
+                    write!(writer, "{}", accent.style("]"))?;
+                }
+            }
         }
 
         writeln!(writer)

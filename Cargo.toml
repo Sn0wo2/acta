@@ -2,7 +2,6 @@
 name = "acta"
 version.workspace = true
 edition = "2024"
-rust-version = "1.85"
 description = "Make Tracing Great Again."
 repository = "https://github.com/Sn0wo2/acta"
 license = "Apache-2.0"
@@ -29,7 +28,7 @@ compress = ["dep:flate2"]
 serde = ["dep:serde"]
 unicode = []
 nerd = ["dep:nerd-font-symbols"]
-wasm-console = ["dep:web-sys", "dep:wasm-bindgen", "chrono/wasmbind"]
+wasm-console = ["dep:wasm-bindgen", "chrono/wasmbind"]
 
 [dependencies]
 thiserror = "2"
@@ -47,13 +46,15 @@ tracing-subscriber = { version = "0.3", features = [
     "ansi",
     "std",
 ] }
-supports-color = "3"
 ansi_colours = "1.2"
+anstyle-parse = "1"
 anstyle-lossy = "1.1"
 compact_str = { version = "0.10", features = ["serde"] }
+unicode-width = "0.2"
 nerd-font-symbols = { version = "0.3.0", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+supports-color = "3"
 flate2 = { version = "1.1.9", default-features = false, features = [
     "miniz_oxide",
 ], optional = true }
@@ -66,7 +67,6 @@ tokio = { version = "1", default-features = false, features = [
 ], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", optional = true, features = ["console"] }
 wasm-bindgen = { version = "0.2", optional = true }
 
 [build-dependencies]

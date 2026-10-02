@@ -4,27 +4,13 @@
 #![allow(clippy::pub_use)]
 
 pub mod builder;
-pub mod color;
 pub mod config;
 pub mod fmt;
 pub mod prelude;
-#[cfg(any(
-    feature = "file",
-    feature = "custom-async",
-    feature = "native-async",
-    all(target_arch = "wasm32", feature = "wasm-console")
-))]
-pub mod writer;
+pub(crate) mod utils;
+pub(crate) mod writer;
 
-#[cfg(all(
-    target_arch = "wasm32",
-    any(
-        feature = "file",
-        feature = "custom-async",
-        feature = "native-async",
-        feature = "compress"
-    )
-))]
+#[cfg(acta_wasm_blocking)]
 compile_error!(
     "acta: the `file`, `compress`, `custom-async` and `native-async` features are not \
      supported on wasm32; build with `default-features = false` and enable `wasm-console`"
@@ -43,19 +29,10 @@ pub use tracing::{
     debug, debug_span, error, error_span, info, info_span, trace, trace_span, warn, warn_span,
 };
 
-#[cfg(feature = "custom-async")]
-pub use writer::{AsyncWriter, async_writer_for};
-
-#[cfg(any(feature = "custom-async", feature = "native-async"))]
+#[cfg(acta_async)]
 pub use config::AsyncMode;
 #[cfg(feature = "custom-async")]
 pub use config::DEFAULT_ASYNC_BUFFER_SIZE;
-
-#[cfg(any(feature = "custom-async", feature = "native-async"))]
-pub use writer::AsyncWriterTarget;
-
-#[cfg(feature = "file")]
-pub use crate::writer::{LogHandle, resolve_log_path, rotate_log_file};
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -68,6 +45,8 @@ pub enum ActaError {
     Io(#[from] std::io::Error),
     #[error("failed to set global tracing subscriber: {0}")]
     SetGlobalDefault(#[from] tracing::subscriber::SetGlobalDefaultError),
+    #[error(transparent)]
+    LogTracer(#[from] tracing_log::log_tracer::SetLoggerError),
 }
 
 pub type Result<T> = std::result::Result<T, ActaError>;

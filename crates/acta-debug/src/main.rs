@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use acta::{
     Config, FileConfig, Filter, Format, Icons, LayerConfig, Level, LevelLabels, Rotation, Style,
-    Theme, Writer, WriterTarget, build_layer, init, rotate_log_file,
+    Theme, Writer, WriterTarget, build_layer, init,
 };
 
 use smallvec::{SmallVec, smallvec};
@@ -292,31 +292,6 @@ fn main() {
     ] {
         drop(build_layer(&w));
         log!(success, &format!("build_layer({desc})"));
-    }
-
-    section("FILE");
-
-    log!(sub, "rotate_log_file");
-    let dir = std::path::Path::new("data/logs/rotation");
-    drop(std::fs::create_dir_all(dir));
-    let path = dir.join("test.log");
-    log!(info, &format!("target: {}", path.display()));
-    std::fs::write(&path, b"old\n").ok();
-    for (mode, name) in [
-        (Rotation::Rename, "Rename"),
-        (Rotation::Compress, "Compress"),
-    ] {
-        match rotate_log_file(&path, mode) {
-            Ok(()) => log!(success, &format!("rotate({name})")),
-            Err(e) => log!(fail, &format!("rotate({name}): {e}")),
-        }
-        std::fs::write(&path, b"fresh\n").ok();
-    }
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        log!(info, "disk:");
-        for e in entries.flatten() {
-            log!(pad, e.file_name().to_string_lossy());
-        }
     }
 
     section("RELOAD via init");

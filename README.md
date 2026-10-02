@@ -64,7 +64,7 @@ Keep the returned guard alive for as long as logging is needed. Dropping it stop
 | `compress`     | No                 | Enables `Rotation::Compress` for gzip-compressing old log files.              |
 | `serde`        | No                 | Adds `Serialize` / `Deserialize` support for config types.                    |
 | `nerd`         | No                 | Enables Nerd Font icons through `Icons::NERD` and uses them by default.       |
-| `custom-async` | No                 | Enables Tokio-backed async console writers and exports `AsyncWriter` helpers. |
+| `custom-async` | No                 | Enables Tokio-backed async console writers.                                   |
 | `native-async` | No                 | Enables non-blocking console writers backed by `tracing-appender`.            |
 | `async`        | No                 | Enables both `custom-async` and `native-async`.                               |
 
