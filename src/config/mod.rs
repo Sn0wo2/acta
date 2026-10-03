@@ -15,6 +15,43 @@ pub enum ColorDepth {
     NoColor,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LevelAlignment {
+    Left,
+    Right,
+}
+
+#[macro_export]
+macro_rules! level_labels {
+    ($labels:expr $(,)?) => {
+        $crate::level_labels!($labels, $crate::LevelAlignment::Left)
+    };
+    ($labels:expr, $alignment:expr $(,)?) => {
+        $crate::level_labels!(@align $labels, $alignment; error, warn, info, debug, trace)
+    };
+    (@align $labels:expr, $alignment:expr; $($field:ident),+) => {{
+        #[allow(clippy::indexing_slicing, clippy::panic)]
+        const {
+            const __ACTA_LABELS: $crate::LevelLabels = $labels;
+            const __ACTA_WIDTH: usize = {
+                let mut width = 0;
+                $(let len = __ACTA_LABELS.$field.trim_ascii().len(); if len > width { width = len; })+
+                width
+            };
+            $crate::LevelLabels::custom($(match ::core::str::from_utf8(&const {
+                let bytes = __ACTA_LABELS.$field.trim_ascii().as_bytes();
+                assert!(bytes.is_ascii(), "compile-time label alignment requires ASCII labels");
+                let mut padded = [b' '; __ACTA_WIDTH];
+                let start = if let $crate::LevelAlignment::Right = $alignment { __ACTA_WIDTH - bytes.len() } else { 0 };
+                let mut i = 0;
+                while i < bytes.len() { padded[start + i] = bytes[i]; i += 1; }
+                padded
+            }) { Ok(label) => label, Err(_) => panic!("aligned labels must be ASCII") }),+)
+        }
+    }};
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct LevelLabels {
@@ -42,13 +79,9 @@ impl LevelLabels {
         }
     }
 
-    pub const LONG: Self = Self {
-        error: "ERROR",
-        warn: "WARN",
-        info: "INFO",
-        debug: "DEBUG",
-        trace: "TRACE",
-    };
+    pub const LONG: Self = crate::level_labels!(LevelLabels::custom(
+        "ERROR", "WARN", "INFO", "DEBUG", "TRACE"
+    ));
 
     pub const MEDIUM: Self = Self {
         error: "ERR",

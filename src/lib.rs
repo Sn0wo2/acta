@@ -19,8 +19,8 @@ pub use builder::{TracingGuard, init};
 #[cfg(feature = "file")]
 pub use config::FileConfig;
 pub use config::{
-    ColorDepth, Config, ConfigBuilder, Filter, Format, Icons, LayerConfig, Level, LevelLabels,
-    Rotation, Style, Theme, Writer, WriterTarget,
+    ColorDepth, Config, ConfigBuilder, Filter, Format, Icons, LayerConfig, Level, LevelAlignment,
+    LevelLabels, Rotation, Style, Theme, Writer, WriterTarget,
 };
 pub use fmt::Formatter;
 
