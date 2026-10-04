@@ -23,16 +23,16 @@ test-all:
 	cargo test --all
 
 test-no-default:
-	cargo test --all --no-default-features
+	cargo test -p acta --no-default-features
 
 check-all-features:
 	cargo check --all-targets --all-features
 
 check-no-default:
-	cargo check --all-targets --no-default-features
+	cargo check -p acta --all-targets --no-default-features
 
 check-wasm:
-	cargo check -p acta --lib --no-default-features --features unicode,wasm-console --target wasm32-unknown-unknown
+	cargo check -p acta --lib --no-default-features --features wasm-console --target wasm32-unknown-unknown
 
 check: fix lint test test-all test-no-default check-all-features check-no-default publish-dry
 

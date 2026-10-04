@@ -1,6 +1,6 @@
 # acta
 
-[![Rust](https://img.shields.io/badge/rust-%3E%3D1.85-orange?style=flat-square&logo=rust&logoColor=white&labelColor=1a1b27)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-%3E%3D1.88-orange?style=flat-square&logo=rust&logoColor=white&labelColor=1a1b27)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-blue?style=flat-square&logo=rust&logoColor=white&labelColor=1a1b27)](https://doc.rust-lang.org/edition-guide/)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-acta-2ea44f?style=flat-square&logo=gitbook&logoColor=white&labelColor=1a1b27)](https://deepwiki.com/Sn0wo2/acta)
 
@@ -106,11 +106,10 @@ Rotation happens when the writer opens the file.
 
 ## Features
 
-`unicode` and `file` are enabled by default.
+`file` is enabled by default.
 
 | Feature        | Enables                                                     |
 | -------------- | ----------------------------------------------------------- |
-| `unicode`      | Currently has no effect; Unicode icons are always available |
 | `file`         | File writers                                                |
 | `compress`     | Gzip rotation; includes `file`                              |
 | `serde`        | Config serialization; style is skipped                      |
@@ -122,6 +121,8 @@ Rotation happens when the writer opens the file.
 
 Async targets use `WriterTarget::AsyncStdout` or `AsyncStderr` with
 `AsyncMode::Custom { buffer_size: 4096 }` or `AsyncMode::Native`.
+Custom writers drain on `guard.flush()`; native and file writers flush
+when the guard is dropped.
 
 ## WebAssembly
 

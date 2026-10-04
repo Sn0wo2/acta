@@ -1,6 +1,7 @@
 [package]
 name = "acta-build"
 version.workspace = true
+rust-version.workspace = true
 edition = "2024"
 description = "Build-time helper for acta: compute path-column width from a project's source tree"
 repository = "https://github.com/Sn0wo2/acta"

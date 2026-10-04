@@ -1,6 +1,7 @@
 [package]
 name = "acta"
 version.workspace = true
+rust-version.workspace = true
 edition = "2024"
 description = "Make Tracing Great Again."
 repository = "https://github.com/Sn0wo2/acta"
@@ -14,19 +15,19 @@ members = ["crates/*"]
 
 [workspace.package]
 version = "0.3.0"
+rust-version = "1.88"
 
 [workspace.dependencies]
 acta-build = { path = "crates/acta-build", version = "0.3.0" }
 
 [features]
-default = ["unicode", "file"]
+default = ["file"]
 async = ["custom-async", "native-async"]
 custom-async = ["dep:tokio"]
 native-async = ["file"]
 file = ["dep:tracing-appender"]
 compress = ["file", "dep:flate2"]
 serde = ["dep:serde"]
-unicode = []
 nerd = ["dep:nerd-font-symbols"]
 wasm-console = ["dep:wasm-bindgen", "chrono/wasmbind"]
 

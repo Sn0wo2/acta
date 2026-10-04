@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from "node:child_process"
+import { resolve } from "node:path"
 
 const rustc = spawnSync("rustc", ["-vV"], { encoding: "utf8" })
 if (rustc.status !== 0) {
@@ -26,12 +27,24 @@ for (let i = 0; i < args.length; i++) {
 }
 
 let command = ["cargo"]
+let env = process.env
 if (target && target !== host) {
   command = ["cargo", "zigbuild"]
+  env = {
+    ...env,
+    CARGO_ZIGBUILD_CACHE_DIR: resolve(
+      "target",
+      "zigbuild",
+      target,
+      Bun.hash(process.env.RUSTFLAGS ?? "").toString(16),
+    ),
+  }
   if (args[0] === "build") args = args.slice(1)
 }
 
 process.exit(
-  spawnSync(command[0], [...command.slice(1), ...args], { stdio: "inherit" })
-    .status ?? 1,
+  spawnSync(command[0], [...command.slice(1), ...args], {
+    stdio: "inherit",
+    env,
+  }).status ?? 1,
 )

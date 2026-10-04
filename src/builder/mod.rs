@@ -1,7 +1,7 @@
 #[cfg(any(not(acta_wasm_console), feature = "file"))]
 use std::io;
 #[cfg(feature = "file")]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "file")]
 use crate::config::Rotation;
@@ -34,10 +34,13 @@ type ReloadHandle =
 
 pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
     let Config { filter, writers } = config.into();
+    let env_filter = tracing_subscriber::EnvFilter::try_new(filter.as_directive())?;
     let mut layers: Vec<BoxedLayer> = Vec::with_capacity(writers.len());
 
     #[cfg(feature = "file")]
     let mut worker_guards = Vec::new();
+    #[cfg(feature = "custom-async")]
+    let mut async_guards = Vec::new();
 
     for writer in writers {
         let make_writer = match &writer.target {
@@ -56,37 +59,33 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
                 }
 
                 if config.path.exists() {
+                    let timestamp = chrono::Local::now()
+                        .format("%Y-%m-%d_%H-%M-%S%.3f")
+                        .to_string();
                     match config.rotation {
                         Rotation::None => {}
                         Rotation::Rename => {
-                            std::fs::rename(
-                                &config.path,
-                                config.path.with_extension(format!(
-                                    "{}.log",
-                                    chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")
-                                )),
-                            )?;
+                            let (archive, reservation) =
+                                reserve_archive(&config.path, &format!("{timestamp}.log"))?;
+                            drop(reservation);
+                            std::fs::rename(&config.path, &archive)?;
                         }
                         #[cfg(feature = "compress")]
                         Rotation::Compress => {
-                            let new_timestamp =
-                                chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
                             let tmp_path = config
                                 .path
-                                .with_extension(format!("{new_timestamp}.log.compressing"));
+                                .with_extension(format!("{timestamp}.log.compressing"));
                             std::fs::rename(&config.path, &tmp_path)?;
 
-                            let gz_path = config
-                                .path
-                                .with_extension(format!("{new_timestamp}.log.gz"));
+                            let (_, gz_file) =
+                                reserve_archive(&config.path, &format!("{timestamp}.log.gz"))?;
                             let compress = move || {
                                 use flate2::Compression;
                                 use flate2::read::GzEncoder;
                                 use std::io::{BufWriter, Write};
 
                                 if let Err(e) = (|| -> io::Result<()> {
-                                    let mut buf_writer =
-                                        BufWriter::new(std::fs::File::create(&gz_path)?);
+                                    let mut buf_writer = BufWriter::new(gz_file);
 
                                     io::copy(
                                         &mut GzEncoder::new(
@@ -126,50 +125,57 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
                     }
                 }
 
-                let path = match std::fs::OpenOptions::new()
+                let file = match std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(&config.path)
                 {
-                    Ok(_) => config.path.clone(),
-                    Err(_) => config.path.with_file_name(format!(
-                        "{}-{}.{}",
-                        config
-                            .path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("latest"),
-                        std::process::id(),
-                        config
-                            .path
-                            .extension()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("log")
-                    )),
+                    Ok(file) => file,
+                    Err(_) => std::fs::OpenOptions::new().create(true).append(true).open(
+                        config.path.with_file_name(format!(
+                            "{}-{}.{}",
+                            config
+                                .path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("latest"),
+                            std::process::id(),
+                            config
+                                .path
+                                .extension()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("log")
+                        )),
+                    )?,
                 };
 
-                let (w, guard) = tracing_appender::non_blocking(tracing_appender::rolling::never(
-                    path.parent().unwrap_or(Path::new(".")),
-                    path.file_name().unwrap_or_default(),
-                ));
+                let (w, guard) = tracing_appender::non_blocking(file);
                 worker_guards.push(guard);
                 BoxMakeWriter::new(w)
             }
             #[cfg(feature = "custom-async")]
-            WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size }) => BoxMakeWriter::new(
-                custom_async::CustomAsyncWriter::new(Stream::Out, *buffer_size),
-            ),
+            WriterTarget::AsyncStdout(AsyncMode::Custom { buffer_size }) => {
+                let (w, guard) = custom_async::CustomAsyncWriter::new(Stream::Out, *buffer_size)?;
+                async_guards.push(guard);
+                BoxMakeWriter::new(w)
+            }
             #[cfg(feature = "custom-async")]
-            WriterTarget::AsyncStderr(AsyncMode::Custom { buffer_size }) => BoxMakeWriter::new(
-                custom_async::CustomAsyncWriter::new(Stream::Err, *buffer_size),
-            ),
+            WriterTarget::AsyncStderr(AsyncMode::Custom { buffer_size }) => {
+                let (w, guard) = custom_async::CustomAsyncWriter::new(Stream::Err, *buffer_size)?;
+                async_guards.push(guard);
+                BoxMakeWriter::new(w)
+            }
             #[cfg(feature = "native-async")]
             WriterTarget::AsyncStdout(AsyncMode::Native) => {
-                BoxMakeWriter::new(native_async::NativeAsyncWriter::new(Stream::Out))
+                let (w, guard) = native_async::non_blocking(Stream::Out);
+                worker_guards.push(guard);
+                BoxMakeWriter::new(w)
             }
             #[cfg(feature = "native-async")]
             WriterTarget::AsyncStderr(AsyncMode::Native) => {
-                BoxMakeWriter::new(native_async::NativeAsyncWriter::new(Stream::Err))
+                let (w, guard) = native_async::non_blocking(Stream::Err);
+                worker_guards.push(guard);
+                BoxMakeWriter::new(w)
             }
         };
 
@@ -255,9 +261,7 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
                 .boxed(),
         });
     }
-    let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(
-        tracing_subscriber::EnvFilter::try_new(filter.as_directive())?,
-    );
+    let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(env_filter);
 
     tracing_log::LogTracer::init()?;
 
@@ -270,7 +274,30 @@ pub fn init(config: impl Into<Config>) -> crate::Result<TracingGuard> {
         filter,
         #[cfg(feature = "file")]
         worker_guards,
+        #[cfg(feature = "custom-async")]
+        async_guards,
     })
+}
+
+#[cfg(feature = "file")]
+#[cfg_attr(not(feature = "compress"), allow(clippy::single_call_fn))]
+fn reserve_archive(base: &Path, extension: &str) -> io::Result<(PathBuf, std::fs::File)> {
+    let mut attempt = 0;
+    let mut path = base.with_extension(extension);
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                attempt += 1;
+                path = base.with_extension(format!("{extension}-{attempt}"));
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 #[must_use = "dropping TracingGuard will release associated resources"]
@@ -279,6 +306,8 @@ pub struct TracingGuard {
     pub(crate) filter: Filter,
     #[cfg(feature = "file")]
     pub(crate) worker_guards: Vec<WorkerGuard>,
+    #[cfg(feature = "custom-async")]
+    pub(crate) async_guards: Vec<custom_async::CustomAsyncGuard>,
 }
 
 impl std::fmt::Debug for TracingGuard {
@@ -287,11 +316,20 @@ impl std::fmt::Debug for TracingGuard {
         let _ = d.field("filter", &self.filter);
         #[cfg(feature = "file")]
         let _ = d.field("num_file_guards", &self.worker_guards.len());
+        #[cfg(feature = "custom-async")]
+        let _ = d.field("num_async_guards", &self.async_guards.len());
         d.finish_non_exhaustive()
     }
 }
 
 impl TracingGuard {
+    #[cfg(feature = "custom-async")]
+    pub fn flush(&self) {
+        for guard in &self.async_guards {
+            guard.flush();
+        }
+    }
+
     pub fn set_filter(&mut self, filter: Filter) -> crate::Result<()> {
         self.raw.reload(tracing_subscriber::EnvFilter::try_new(
             filter.as_directive(),

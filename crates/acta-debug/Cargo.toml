@@ -1,6 +1,7 @@
 [package]
 name = "acta-debug"
 version.workspace = true
+rust-version.workspace = true
 edition = "2024"
 description = "Debug suite and demo binary for acta"
 repository = "https://github.com/Sn0wo2/acta"
@@ -12,7 +13,6 @@ acta = { path = "../..", version = "0.3.0", features = [
     "file",
     "compress",
     "serde",
-    "unicode",
     "nerd",
 ] }
 smallvec = "1.15.1"

@@ -46,6 +46,8 @@ pub enum ActaError {
     SetGlobalDefault(#[from] tracing::subscriber::SetGlobalDefaultError),
     #[error(transparent)]
     LogTracer(#[from] tracing_log::log_tracer::SetLoggerError),
+    #[error("custom-async writers require an active tokio runtime")]
+    RuntimeUnavailable,
 }
 
 pub type Result<T> = std::result::Result<T, ActaError>;

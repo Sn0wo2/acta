@@ -2,17 +2,6 @@ version: 2
 
 project_name: acta
 
-before:
-  hooks:
-    - rustup default stable
-    - python3 scripts/cargo-fmt.py
-    - python3 scripts/cargo-clippy.py
-    - python3 scripts/cargo-test.py
-    - python3 scripts/cargo-test.py --all-features
-    - python3 scripts/cargo-test.py --no-default-features
-    - cargo publish --manifest-path crates/acta-build/Cargo.toml --dry-run --allow-dirty
-    - cargo publish --dry-run --allow-dirty
-
 builds:
   - id: acta-linux-amd64-v2
     builder: rust

@@ -30,6 +30,8 @@ fn build_test_guard(level: Level) -> (TracingGuard, TestSubscriber) {
         filter,
         #[cfg(feature = "file")]
         worker_guards: Vec::new(),
+        #[cfg(feature = "custom-async")]
+        async_guards: Vec::new(),
     };
     (guard, subscriber)
 }
