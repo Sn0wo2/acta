@@ -5,10 +5,8 @@ use chrono::Local;
 use chrono::format::Item;
 use chrono::format::StrftimeItems;
 use compact_str::CompactString;
-use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Write as _;
-use std::path::Path;
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::fmt::FormattedFields;
 use tracing_subscriber::fmt::format::Writer;
@@ -216,27 +214,21 @@ where
         if self.show_path {
             let max_width = self.path_width;
             let source = event.metadata().file().unwrap_or("?");
-            let normalized = if source.contains('\\') {
-                Cow::Owned(source.replace('\\', "/"))
-            } else {
-                Cow::Borrowed(source)
-            };
-            let mut components = Path::new(normalized.as_ref()).components();
-            let mut full = CompactString::default();
-            if components
-                .by_ref()
-                .any(|component| component.as_os_str() == "src")
-            {
-                for component in components {
-                    if !full.is_empty() {
-                        full.push('/');
-                    }
-                    full.push_str(&component.as_os_str().to_string_lossy());
+
+            let mut tail = None;
+            let mut rest = source;
+            while let Some(index) = rest.find(['/', '\\']) {
+                let (component, remainder) = (&rest[..index], &rest[index + 1..]);
+                if component == "src" {
+                    tail = Some(remainder);
+                    break;
                 }
+                rest = remainder;
             }
-            if full.is_empty() {
-                full.push_str(&normalized);
-            }
+            let tail = tail.filter(|tail| !tail.is_empty()).unwrap_or(source);
+
+            let mut full = CompactString::with_capacity(tail.len() + 5);
+            full.extend(tail.chars().map(|c| if c == '\\' { '/' } else { c }));
             write!(full, ":{}", event.metadata().line().unwrap_or(0))?;
             let mut start = 0;
             let mut ellipsis = false;

@@ -1,7 +1,7 @@
 use compact_str::CompactString;
 #[cfg(feature = "nerd")]
 use nerd_font_symbols::{fa, ple};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 #[cfg(feature = "file")]
 use std::path::PathBuf;
 
@@ -327,21 +327,19 @@ impl Default for Style {
 }
 
 #[allow(clippy::module_name_repetitions)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
 pub struct LayerConfig {
-    #[cfg_attr(feature = "serde", serde(default))]
     pub target: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub file: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub line_number: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub current_span: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub span_list: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub flatten_event: bool,
 }
 
@@ -479,19 +477,23 @@ impl Level {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Filter {
     base: CompactString,
-    targets: HashMap<CompactString, Level>,
+    targets: BTreeMap<CompactString, Level>,
 }
 
 impl Filter {
     pub fn new(level: Level) -> Self {
         Self {
             base: level.as_directive().into(),
-            targets: HashMap::new(),
+            targets: BTreeMap::new(),
         }
     }
 
@@ -507,7 +509,7 @@ impl Filter {
     pub fn from_directive(directive: impl Into<CompactString>) -> Self {
         Self {
             base: directive.into(),
-            targets: HashMap::new(),
+            targets: BTreeMap::new(),
         }
     }
 
@@ -573,20 +575,19 @@ pub enum AsyncMode {
     Native,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
 #[allow(clippy::exhaustive_structs)]
 #[derive(Clone, Debug)]
 pub struct Writer {
     pub format: Format,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub ansi: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub color_depth: Option<ColorDepth>,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub show_path: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub show_spans: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub time_format: Option<String>,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub style: Style,
@@ -697,13 +698,15 @@ impl Writer {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Config {
-    #[cfg_attr(feature = "serde", serde(default))]
     pub filter: Filter,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub writers: Vec<Writer>,
 }
 
