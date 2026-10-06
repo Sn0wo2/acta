@@ -3,6 +3,7 @@
 use super::*;
 use crate::ActaError;
 use std::io;
+use tracing_subscriber::EnvFilter;
 
 #[test]
 fn acta_error_display_io() {
@@ -19,44 +20,37 @@ fn acta_error_from_io_error() {
 }
 
 #[test]
-fn config_default() {
-    let config = Config::default();
-    assert_eq!(config.filter.as_directive(), "info");
-    assert_eq!(config.writers.len(), 1);
-    let w = &config.writers[0];
+fn config_builder_default() {
+    let cfg = Config::builder().build();
+    assert_eq!(cfg.filter.to_string(), "info");
+    assert_eq!(cfg.writers.len(), 1);
+    let w = &cfg.writers[0];
     assert!(matches!(w.format, Format::Compact(_)));
-    assert!(w.ansi);
-    assert!(w.show_path);
-    assert!(w.show_spans);
-    assert!(w.time_format.is_none());
+    assert!(matches!(w.target, WriterTarget::Stdout));
 }
 
 #[test]
 fn writer_default() {
     let w = Writer::default();
     assert!(matches!(w.format, Format::Compact(_)));
-    assert!(w.ansi);
-    assert!(w.show_path);
-    assert!(w.show_spans);
     assert!(matches!(w.target, WriterTarget::Stdout));
 }
 
 #[test]
 fn config_builder() {
     let cfg = Config::builder()
-        .level(Level::Debug)
-        .with_writer(Writer::default())
+        .with_filter(EnvFilter::new("debug"))
+        .with_writers([Writer::default()])
         .build();
-    assert_eq!(cfg.filter.as_directive(), "debug");
+    assert_eq!(cfg.filter.to_string(), "debug");
     assert_eq!(cfg.writers.len(), 1);
 }
 
 #[test]
 fn config_builder_multiple_writers() {
     let cfg = Config::builder()
-        .level(Level::Info)
-        .with_writer(Writer::stdout())
-        .with_writer(Writer::stderr())
+        .with_filter(EnvFilter::new("info"))
+        .with_writers([Writer::stdout(), Writer::stderr()])
         .build();
     assert_eq!(cfg.writers.len(), 2);
 }
@@ -64,14 +58,12 @@ fn config_builder_multiple_writers() {
 #[test]
 fn writer_chained_construction() {
     let w = Writer::stderr()
-        .json()
-        .with_ansi(false)
-        .with_theme(Theme::monokai())
-        .with_time_format("%H:%M");
+        .with_format(Format::Json(JsonOptions::default()))
+        .with_color_depth(ColorDepth::Ansi256)
+        .with_stacktrace(tracing::Level::ERROR);
     assert!(matches!(w.target, WriterTarget::Stderr));
     assert!(matches!(w.format, Format::Json(_)));
-    assert!(!w.ansi);
-    assert_eq!(w.time_format.as_deref(), Some("%H:%M"));
+    assert_eq!(w.stacktrace, vec![tracing::Level::ERROR]);
 }
 
 #[cfg(feature = "file")]
@@ -82,106 +74,8 @@ fn writer_file_constructor() {
 }
 
 #[test]
-fn format_shortcuts() {
-    assert!(matches!(Format::pretty(), Format::Pretty(_)));
-    assert!(matches!(Format::compact(), Format::Compact(_)));
-    assert!(matches!(Format::json(), Format::Json(_)));
-}
-
-#[test]
-fn config_from_filter() {
-    let cfg: Config = Filter::new(Level::Debug).into();
-    assert_eq!(cfg.filter.as_directive(), "debug");
-    assert_eq!(cfg.writers.len(), 1);
-}
-
-#[test]
-fn config_from_writer() {
-    let cfg: Config = Writer::stderr().into();
-    assert_eq!(cfg.filter.as_directive(), "info");
-    assert!(matches!(cfg.writers[0].target, WriterTarget::Stderr));
-}
-
-#[test]
-fn config_from_writer_vec() {
-    let cfg: Config = vec![Writer::stdout(), Writer::stderr()].into();
-    assert_eq!(cfg.writers.len(), 2);
-}
-
-#[test]
-fn level_directives() {
-    assert_eq!(Level::Error.as_directive(), "error");
-    assert_eq!(Level::Warn.as_directive(), "warn");
-    assert_eq!(Level::Info.as_directive(), "info");
-    assert_eq!(Level::Debug.as_directive(), "debug");
-    assert_eq!(Level::Trace.as_directive(), "trace");
-    assert_eq!(Level::Off.as_directive(), "off");
-}
-
-#[test]
-fn filter_from_directive() {
-    let f = Filter::from_directive("info,my_crate=debug");
-    assert_eq!(f.as_directive(), "info,my_crate=debug");
-}
-
-#[test]
-fn filter_from_directive_with_extra_target() {
-    let mut f = Filter::from_directive("info,bar=warn");
-    f.with_target("foo", Level::Trace);
-    let directive = f.as_directive();
-    assert!(directive.starts_with("info,bar=warn"));
-    assert!(directive.contains("foo=trace"));
-}
-
-#[test]
-fn filter_builds_directive() {
-    let filter = {
-        let mut f = Filter::new(Level::Debug);
-        f.with_target("my_crate", Level::Trace);
-        f.with_target("my_crate::db", Level::Warn);
-        f
-    };
-
-    let directive = filter.as_directive();
-    assert!(directive.starts_with("debug,"));
-    assert!(directive.contains("my_crate=trace"));
-    assert!(directive.contains("my_crate::db=warn"));
-    assert_eq!(directive.matches(',').count(), 2);
-}
-
-#[test]
-fn filter_updates_targets() {
-    let mut filter = Filter::new(Level::Info);
-    filter.with_target("my_crate", Level::Debug);
-    filter.with_target("my_crate", Level::Trace);
-
-    assert_eq!(filter.as_directive(), "info,my_crate=trace");
-    assert!(filter.remove_target("my_crate"));
-    assert_eq!(filter.as_directive(), "info");
-}
-
-#[test]
 fn rotation_default_is_none() {
     assert!(matches!(Rotation::default(), Rotation::None));
-}
-
-#[test]
-fn filter_remove_target_exists() {
-    let mut filter = Filter::new(Level::Info);
-    filter.with_target("my_crate", Level::Debug);
-    assert!(filter.remove_target("my_crate"));
-}
-
-#[test]
-fn filter_remove_target_not_exists() {
-    let mut filter = Filter::new(Level::Info);
-    assert!(!filter.remove_target("nonexistent"));
-}
-
-#[test]
-fn filter_default_is_info() {
-    let filter = Filter::default();
-    assert_eq!(filter.as_directive(), "info");
 }
 
 #[test]

@@ -1,9 +1,12 @@
-use compact_str::CompactString;
 #[cfg(feature = "nerd")]
 use nerd_font_symbols::{fa, ple};
-use std::collections::BTreeMap;
 #[cfg(feature = "file")]
 use std::path::PathBuf;
+use std::sync::Arc;
+use tracing_subscriber::Registry;
+use tracing_subscriber::fmt::format::DefaultFields;
+use tracing_subscriber::fmt::writer::BoxMakeWriter;
+use tracing_subscriber::fmt::{FormatEvent, MakeWriter};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,8 +47,7 @@ macro_rules! level_labels {
                 assert!(bytes.is_ascii(), "compile-time label alignment requires ASCII labels");
                 let mut padded = [b' '; __ACTA_WIDTH];
                 let start = if let $crate::LevelAlignment::Right = $alignment { __ACTA_WIDTH - bytes.len() } else { 0 };
-                let mut i = 0;
-                while i < bytes.len() { padded[start + i] = bytes[i]; i += 1; }
+                let mut i = 0; while i < bytes.len() { padded[start + i] = bytes[i]; i += 1; }
                 padded
             }) { Ok(label) => label, Err(_) => panic!("aligned labels must be ASCII") }),+)
         }
@@ -145,27 +147,25 @@ impl Icons {
 
     pub const UNICODE: Self = Self {
         name: "unicode",
-        #[rustfmt::skip] // 让下面两个括号可以对齐
-        bracket_open:  "[",
-        bracket_close: "]",
-        #[rustfmt::skip]
-        time_bracket_open:  "｢",
-        time_bracket_close: "｣",
-        separator: "┇", // \u{2507}
-        arrow: ">",
-        span_join: "»", // \u{00bb}
+        bracket_open: "(",
+        bracket_close: ")",
+        time_bracket_open: "❬",
+        time_bracket_close: "❭",
+        separator: "┊",
+        arrow: "⟶",
+        span_join: "▸",
     };
 
     #[cfg(feature = "nerd")]
     pub const NERD: Self = Self {
         name: "nerd",
-        bracket_open: ple::PLE_LEFT_HALF_CIRCLE_THICK,
-        bracket_close: ple::PLE_RIGHT_HALF_CIRCLE_THICK,
-        time_bracket_open: ple::PLE_LEFT_HALF_CIRCLE_THIN,
-        time_bracket_close: ple::PLE_RIGHT_HALF_CIRCLE_THIN,
-        separator: "┇", // \u{2507}
-        arrow: fa::FA_CARET_RIGHT,
-        span_join: fa::FA_ANGLES_RIGHT,
+        bracket_open: "(",
+        bracket_close: ")",
+        time_bracket_open: ple::PLE_LEFT_HALF_CIRCLE_THICK,
+        time_bracket_close: ple::PLE_RIGHT_HALF_CIRCLE_THICK,
+        separator: ple::PL_LEFT_HARD_DIVIDER,
+        arrow: fa::FA_ANGLES_RIGHT,
+        span_join: fa::FA_ANGLE_RIGHT,
     };
 }
 
@@ -326,15 +326,37 @@ impl Default for Style {
     }
 }
 
-#[allow(clippy::module_name_repetitions)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(default)
 )]
-pub struct LayerConfig {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::exhaustive_structs)]
+pub struct PrettyOptions {
+    pub target: bool,
+    pub file: bool,
+    pub line_number: bool,
+}
+
+impl Default for PrettyOptions {
+    fn default() -> Self {
+        Self {
+            target: true,
+            file: true,
+            line_number: true,
+        }
+    }
+}
+
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::exhaustive_structs)]
+pub struct JsonOptions {
     pub target: bool,
     pub file: bool,
     pub line_number: bool,
@@ -343,30 +365,8 @@ pub struct LayerConfig {
     pub flatten_event: bool,
 }
 
-impl LayerConfig {
-    pub const fn pretty() -> Self {
-        Self {
-            target: true,
-            file: true,
-            line_number: true,
-            current_span: false,
-            span_list: false,
-            flatten_event: false,
-        }
-    }
-
-    pub const fn compact() -> Self {
-        Self {
-            target: false,
-            file: false,
-            line_number: false,
-            current_span: false,
-            span_list: false,
-            flatten_event: false,
-        }
-    }
-
-    pub const fn json() -> Self {
+impl Default for JsonOptions {
+    fn default() -> Self {
         Self {
             target: false,
             file: false,
@@ -383,31 +383,40 @@ impl LayerConfig {
     derive(serde::Serialize, serde::Deserialize),
     serde(rename_all = "lowercase")
 )]
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)]
 pub enum Format {
-    Pretty(LayerConfig),
-    Compact(LayerConfig),
-    Json(LayerConfig),
+    Pretty(PrettyOptions),
+    Compact(crate::Formatter),
+    Json(JsonOptions),
+    #[cfg_attr(feature = "serde", serde(skip))]
+    Custom(Arc<dyn FormatEvent<Registry, DefaultFields> + Send + Sync>),
 }
 
 impl Format {
-    pub const fn pretty() -> Self {
-        Self::Pretty(LayerConfig::pretty())
+    #[must_use]
+    pub fn custom(
+        formatter: impl FormatEvent<Registry, DefaultFields> + Send + Sync + 'static,
+    ) -> Self {
+        Self::Custom(Arc::new(formatter))
     }
+}
 
-    pub const fn compact() -> Self {
-        Self::Compact(LayerConfig::compact())
-    }
-
-    pub const fn json() -> Self {
-        Self::Json(LayerConfig::json())
+impl std::fmt::Debug for Format {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pretty(options) => f.debug_tuple("Pretty").field(options).finish(),
+            Self::Compact(formatter) => f.debug_tuple("Compact").field(formatter).finish(),
+            Self::Json(options) => f.debug_tuple("Json").field(options).finish(),
+            Self::Custom(_) => f.debug_tuple("Custom").finish_non_exhaustive(),
+        }
     }
 }
 
 impl Default for Format {
     fn default() -> Self {
-        Self::compact()
+        Self::Compact(crate::Formatter::new())
     }
 }
 
@@ -428,9 +437,9 @@ pub enum Rotation {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct FileConfig {
-    pub path: PathBuf,
+    pub(crate) path: PathBuf,
     #[cfg_attr(feature = "serde", serde(default))]
-    pub rotation: Rotation,
+    pub(crate) rotation: Rotation,
 }
 
 #[cfg(feature = "file")]
@@ -453,94 +462,13 @@ impl FileConfig {
     derive(serde::Serialize, serde::Deserialize),
     serde(rename_all = "lowercase")
 )]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Level {
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
-    Off,
-}
-
-impl Level {
-    pub const fn as_directive(self) -> &'static str {
-        match self {
-            Self::Error => "error",
-            Self::Warn => "warn",
-            Self::Info => "info",
-            Self::Debug => "debug",
-            Self::Trace => "trace",
-            Self::Off => "off",
-        }
-    }
-}
-
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(default)
-)]
-#[derive(Clone, Debug)]
-#[non_exhaustive]
-pub struct Filter {
-    base: CompactString,
-    targets: BTreeMap<CompactString, Level>,
-}
-
-impl Filter {
-    pub fn new(level: Level) -> Self {
-        Self {
-            base: level.as_directive().into(),
-            targets: BTreeMap::new(),
-        }
-    }
-
-    pub fn with_target(&mut self, target: impl Into<CompactString>, level: Level) -> &mut Self {
-        self.targets.insert(target.into(), level);
-        self
-    }
-
-    pub fn remove_target(&mut self, target: &str) -> bool {
-        self.targets.remove(target).is_some()
-    }
-
-    pub fn from_directive(directive: impl Into<CompactString>) -> Self {
-        Self {
-            base: directive.into(),
-            targets: BTreeMap::new(),
-        }
-    }
-
-    pub fn as_directive(&self) -> String {
-        let mut directive = String::from(self.base.as_str());
-        for (target, level) in &self.targets {
-            directive.push(',');
-            directive.push_str(target);
-            directive.push('=');
-            directive.push_str(level.as_directive());
-        }
-        directive
-    }
-}
-
-impl Default for Filter {
-    fn default() -> Self {
-        Self::new(Level::Info)
-    }
-}
-
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "lowercase")
-)]
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum WriterTarget {
     Stdout,
     Stderr,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    Custom(Arc<BoxMakeWriter>),
     #[cfg(feature = "file")]
     File(FileConfig),
     #[cfg(acta_async)]
@@ -549,12 +477,16 @@ pub enum WriterTarget {
     AsyncStderr(AsyncMode),
 }
 
-#[cfg(feature = "custom-async")]
-pub const DEFAULT_ASYNC_BUFFER_SIZE: usize = 4096;
+impl WriterTarget {
+    #[must_use]
+    pub fn custom(writer: impl for<'a> MakeWriter<'a> + Send + Sync + 'static) -> Self {
+        Self::Custom(Arc::new(BoxMakeWriter::new(writer)))
+    }
+}
 
 #[cfg(all(feature = "custom-async", feature = "serde"))]
 const fn default_async_buffer_size() -> usize {
-    DEFAULT_ASYNC_BUFFER_SIZE
+    4096
 }
 
 #[cfg(acta_async)]
@@ -580,36 +512,32 @@ pub enum AsyncMode {
     derive(serde::Serialize, serde::Deserialize),
     serde(default)
 )]
-#[allow(clippy::exhaustive_structs)]
 #[derive(Clone, Debug)]
 pub struct Writer {
-    pub format: Format,
-    pub ansi: bool,
-    pub color_depth: Option<ColorDepth>,
-    pub show_path: bool,
-    pub show_spans: bool,
-    pub time_format: Option<String>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub style: Style,
-    pub target: WriterTarget,
+    pub(crate) format: Format,
+    pub(crate) color_depth: Option<ColorDepth>,
+    #[cfg_attr(feature = "serde", serde(with = "serde_adapters::levels"))]
+    pub(crate) stacktrace: Vec<tracing::Level>,
+    pub(crate) target: WriterTarget,
 }
 
 impl Default for Writer {
     fn default() -> Self {
         Self {
             format: Format::default(),
-            ansi: true,
             color_depth: None,
-            show_path: true,
-            show_spans: true,
-            time_format: None,
-            style: Style::default(),
+            stacktrace: vec![tracing::Level::ERROR],
             target: WriterTarget::Stdout,
         }
     }
 }
 
 impl Writer {
+    #[must_use]
+    pub fn custom(writer: impl for<'a> MakeWriter<'a> + Send + Sync + 'static) -> Self {
+        Self::default().with_target(WriterTarget::custom(writer))
+    }
+
     #[must_use]
     pub fn stdout() -> Self {
         Self::default()
@@ -634,29 +562,8 @@ impl Writer {
     }
 
     #[must_use]
-    pub const fn with_format(mut self, format: Format) -> Self {
+    pub fn with_format(mut self, format: Format) -> Self {
         self.format = format;
-        self
-    }
-
-    #[must_use]
-    pub const fn pretty(self) -> Self {
-        self.with_format(Format::pretty())
-    }
-
-    #[must_use]
-    pub const fn compact(self) -> Self {
-        self.with_format(Format::compact())
-    }
-
-    #[must_use]
-    pub const fn json(self) -> Self {
-        self.with_format(Format::json())
-    }
-
-    #[must_use]
-    pub const fn with_ansi(mut self, ansi: bool) -> Self {
-        self.ansi = ansi;
         self
     }
 
@@ -667,122 +574,83 @@ impl Writer {
     }
 
     #[must_use]
-    pub const fn with_show_path(mut self, show: bool) -> Self {
-        self.show_path = show;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_show_spans(mut self, show: bool) -> Self {
-        self.show_spans = show;
-        self
-    }
-
-    /// Sets the timestamp format. Timestamps use the local system timezone.
-    #[must_use]
-    pub fn with_time_format(mut self, fmt: impl Into<String>) -> Self {
-        self.time_format = Some(fmt.into());
-        self
-    }
-
-    #[must_use]
-    pub const fn with_style(mut self, style: Style) -> Self {
-        self.style = style;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_theme(mut self, theme: Theme) -> Self {
-        self.style.theme = theme;
+    pub fn with_stacktrace(
+        mut self,
+        level: impl Into<tracing::level_filters::LevelFilter>,
+    ) -> Self {
+        if let Some(level) = level.into().into_level() {
+            if !self.stacktrace.contains(&level) {
+                self.stacktrace.push(level);
+            }
+        } else {
+            self.stacktrace.clear();
+        }
         self
     }
 }
 
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(default)
-)]
+#[allow(clippy::single_call_fn)]
+fn default_filter() -> tracing_subscriber::EnvFilter {
+    tracing_subscriber::EnvFilter::new("info")
+}
+
+#[allow(clippy::single_call_fn)]
+fn default_writers() -> Vec<Writer> {
+    vec![Writer::default()]
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Config {
-    pub filter: Filter,
-    pub writers: Vec<Writer>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default = "default_filter", with = "serde_adapters::filter")
+    )]
+    pub(crate) filter: tracing_subscriber::EnvFilter,
+    #[cfg_attr(feature = "serde", serde(default = "default_writers"))]
+    pub(crate) writers: Vec<Writer>,
 }
 
 impl Config {
-    pub fn builder() -> ConfigBuilder {
-        ConfigBuilder::default()
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            filter: Filter::default(),
-            writers: vec![Writer::default()],
+    pub const fn builder() -> ConfigBuilder {
+        ConfigBuilder {
+            filter: None,
+            writers: None,
         }
     }
 }
 
-impl From<Filter> for Config {
-    fn from(filter: Filter) -> Self {
-        Self {
-            filter,
-            ..Self::default()
-        }
-    }
-}
-
-impl From<Writer> for Config {
-    fn from(writer: Writer) -> Self {
-        Self {
-            writers: vec![writer],
-            ..Self::default()
-        }
-    }
-}
-
-impl From<Vec<Writer>> for Config {
-    fn from(writers: Vec<Writer>) -> Self {
-        Self {
-            writers,
-            ..Self::default()
-        }
-    }
-}
-
-#[derive(Default, Debug)]
+#[derive(Debug)]
 #[must_use]
 #[allow(clippy::module_name_repetitions)]
 pub struct ConfigBuilder {
-    filter: Option<Filter>,
-    writers: Vec<Writer>,
+    filter: Option<tracing_subscriber::EnvFilter>,
+    writers: Option<Vec<Writer>>,
 }
 
 impl ConfigBuilder {
-    pub fn level(mut self, level: Level) -> Self {
-        self.filter = Some(Filter::new(level));
+    pub fn with_filter(mut self, filter: tracing_subscriber::EnvFilter) -> Self {
+        self.filter = Some(filter);
         self
     }
 
-    pub fn with_writer(mut self, writer: Writer) -> Self {
-        self.writers.push(writer);
+    pub fn with_writers(mut self, writers: impl IntoIterator<Item = Writer>) -> Self {
+        self.writers = Some(writers.into_iter().collect());
         self
     }
 
     pub fn build(self) -> Config {
-        let defaults = Config::default();
         Config {
-            filter: self.filter.unwrap_or(defaults.filter),
-            writers: if self.writers.is_empty() {
-                defaults.writers
-            } else {
-                self.writers
-            },
+            filter: self.filter.unwrap_or_else(default_filter),
+            writers: self.writers.unwrap_or_else(default_writers),
         }
     }
 }
+
+#[cfg(feature = "serde")]
+#[allow(clippy::single_call_fn)]
+mod serde_adapters;
 
 #[cfg(test)]
 mod test;

@@ -16,6 +16,7 @@ dependencies = [
  "nerd-font-symbols",
  "owo-colors",
  "serde",
+ "serde_json",
  "smallvec",
  "supports-color",
  "thiserror",

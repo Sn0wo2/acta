@@ -3,10 +3,9 @@
 #![deny(unused_must_use)]
 #![allow(clippy::pub_use)]
 
-pub mod builder;
-pub mod config;
-pub mod fmt;
-pub mod prelude;
+mod builder;
+mod config;
+mod fmt;
 pub(crate) mod writer;
 
 #[cfg(acta_wasm_blocking)]
@@ -19,25 +18,18 @@ pub use builder::{TracingGuard, init};
 #[cfg(feature = "file")]
 pub use config::FileConfig;
 pub use config::{
-    ColorDepth, Config, ConfigBuilder, Filter, Format, Icons, LayerConfig, Level, LevelAlignment,
-    LevelLabels, Rotation, Style, Theme, Writer, WriterTarget,
+    ColorDepth, Config, ConfigBuilder, Format, Icons, JsonOptions, LevelAlignment, LevelLabels,
+    PrettyOptions, Rotation, Style, Theme, Writer, WriterTarget,
 };
 pub use fmt::Formatter;
 
-pub use tracing::{
-    debug, debug_span, error, error_span, info, info_span, trace, trace_span, warn, warn_span,
-};
-
 #[cfg(acta_async)]
 pub use config::AsyncMode;
-#[cfg(feature = "custom-async")]
-pub use config::DEFAULT_ASYNC_BUFFER_SIZE;
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
+#[allow(variant_size_differences)]
 pub enum ActaError {
-    #[error("invalid filter directive: {0}")]
-    InvalidDirective(#[from] tracing_subscriber::filter::ParseError),
     #[error("failed to reload filter: {0}")]
     Reload(#[from] tracing_subscriber::reload::Error),
     #[error("I/O error: {0}")]

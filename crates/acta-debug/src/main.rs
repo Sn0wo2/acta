@@ -2,11 +2,12 @@
 use std::sync::LazyLock;
 
 use acta::{
-    ColorDepth, Config, FileConfig, Filter, Format, Formatter, Icons, LayerConfig, Level,
-    LevelLabels, Rotation, Style, Theme, Writer, WriterTarget, init,
+    ColorDepth, Config, Format, Formatter, Icons, JsonOptions, LevelLabels, PrettyOptions, Style,
+    Theme, Writer, WriterTarget, init,
 };
-
 use smallvec::{SmallVec, smallvec};
+use tracing::Level;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Registry;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
@@ -43,44 +44,27 @@ macro_rules! log {
     };
 }
 
-fn run_with(w: &Writer, f: impl FnOnce()) {
-    let color_depth = w.color_depth.unwrap_or(if w.ansi {
-        ColorDepth::TrueColor
-    } else {
-        ColorDepth::NoColor
-    });
+fn run_with(format: Format, target: WriterTarget, color_depth: ColorDepth, f: impl FnOnce()) {
     let base = tracing_subscriber::fmt::Layer::default()
         .with_thread_ids(false)
         .with_thread_names(false)
         .with_span_events(FmtSpan::NONE)
-        .with_writer(match w.target {
+        .with_writer(match target {
             WriterTarget::Stderr => BoxMakeWriter::new(std::io::stderr),
             _ => BoxMakeWriter::new(std::io::stdout),
         })
-        .with_ansi(w.ansi && color_depth != ColorDepth::NoColor);
+        .with_ansi(color_depth != ColorDepth::NoColor);
 
-    let layer: Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync> = match &w.format {
+    let layer: Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync> = match format {
         Format::Pretty(cfg) => base
             .pretty()
             .with_target(cfg.target)
             .with_file(cfg.file)
             .with_line_number(cfg.line_number)
             .boxed(),
-        Format::Compact(cfg) => {
-            let mut formatter = Formatter::new()
-                .with_style(w.style)
-                .with_show_path(w.show_path)
-                .with_show_spans(w.show_spans)
-                .with_color_depth(color_depth);
-            if let Some(tf) = &w.time_format {
-                formatter = formatter.with_time_format(tf);
-            }
-            base.with_target(cfg.target)
-                .with_file(cfg.file)
-                .with_line_number(cfg.line_number)
-                .event_format(formatter)
-                .boxed()
-        }
+        Format::Compact(formatter) => base
+            .event_format(formatter.with_color_depth(color_depth))
+            .boxed(),
         Format::Json(cfg) => base
             .json()
             .with_target(cfg.target)
@@ -137,9 +121,16 @@ static THEMES: LazyLock<SmallVec<[(&str, Theme); 8]>> = LazyLock::new(|| {
 fn main() {
     section("FORMAT × ICON");
     let formats: &[(&str, Format)] = &[
-        ("compact", Format::Compact(LayerConfig::compact())),
-        ("pretty", Format::Pretty(LayerConfig::pretty())),
-        ("json", Format::Json(LayerConfig::json())),
+        (
+            "compact",
+            Format::Compact(
+                Formatter::new()
+                    .with_show_path(false)
+                    .with_show_spans(false),
+            ),
+        ),
+        ("pretty", Format::Pretty(PrettyOptions::default())),
+        ("json", Format::Json(JsonOptions::default())),
     ];
     for (fmt_name, format) in formats {
         for (icon_name, icons) in &*ICONS {
@@ -147,18 +138,17 @@ fn main() {
                 icons: *icons,
                 ..Default::default()
             };
-            let ansi = !matches!(format, Format::Json(_));
-            let w = Writer {
-                style,
-                format: format.clone(),
-                ansi,
-                target: WriterTarget::Stdout,
-                show_path: false,
-                show_spans: false,
-                ..Default::default()
+            let format = match format {
+                Format::Compact(f) => Format::Compact(f.clone().with_style(style)),
+                other => other.clone(),
+            };
+            let color_depth = if matches!(format, Format::Json(_)) {
+                ColorDepth::NoColor
+            } else {
+                ColorDepth::TrueColor
             };
             log!(sub, &format!("{fmt_name} + {icon_name}"));
-            run_with(&w, emit_all_levels);
+            run_with(format, WriterTarget::Stdout, color_depth, emit_all_levels);
         }
     }
 
@@ -173,39 +163,51 @@ fn main() {
 
     log!(sub, "Live preview per theme");
     for (name, theme) in &*THEMES {
-        let w = Writer {
-            style: Style {
-                theme: *theme,
-                ..Default::default()
-            },
-            format: Format::Compact(LayerConfig::compact()),
-            target: WriterTarget::Stdout,
-            show_path: false,
-            show_spans: false,
-            ..Default::default()
-        };
-        println!("  [{name}]");
-        run_with(&w, || emit_demo(name));
+        for (icon_name, icons) in &*ICONS {
+            println!("  [{name} / {icon_name}]");
+            run_with(
+                Format::Compact(
+                    Formatter::new()
+                        .with_style(Style {
+                            theme: *theme,
+                            icons: *icons,
+                            ..Default::default()
+                        })
+                        .with_show_path(false)
+                        .with_show_spans(false),
+                ),
+                WriterTarget::Stdout,
+                ColorDepth::TrueColor,
+                || emit_demo(name),
+            );
+        }
     }
 
     section("ALL LEVELS");
     for (icon_name, icons) in &*ICONS {
-        log!(sub, icon_name);
-        run_with(
-            &Writer {
-                style: Style {
-                    icons: *icons,
-                    theme: Theme::one_dark(),
-                    ..Default::default()
-                },
-                format: Format::Compact(LayerConfig::compact()),
-                target: WriterTarget::Stdout,
-                show_path: false,
-                show_spans: false,
-                ..Default::default()
-            },
-            emit_all_levels,
-        );
+        for depth in [
+            ColorDepth::TrueColor,
+            ColorDepth::Ansi256,
+            ColorDepth::Ansi16,
+            ColorDepth::NoColor,
+        ] {
+            log!(sub, &format!("{icon_name} / {depth:?}"));
+            run_with(
+                Format::Compact(
+                    Formatter::new()
+                        .with_style(Style {
+                            icons: *icons,
+                            theme: Theme::one_dark(),
+                            ..Default::default()
+                        })
+                        .with_show_path(false)
+                        .with_show_spans(false),
+                ),
+                WriterTarget::Stdout,
+                depth,
+                emit_all_levels,
+            );
+        }
     }
 
     section("LABELS");
@@ -216,17 +218,17 @@ fn main() {
     ] {
         log!(sub, label);
         run_with(
-            &Writer {
-                style: Style {
-                    labels,
-                    ..Default::default()
-                },
-                format: Format::Compact(LayerConfig::compact()),
-                target: WriterTarget::Stdout,
-                show_path: false,
-                show_spans: false,
-                ..Default::default()
-            },
+            Format::Compact(
+                Formatter::new()
+                    .with_style(Style {
+                        labels,
+                        ..Default::default()
+                    })
+                    .with_show_path(false)
+                    .with_show_spans(false),
+            ),
+            WriterTarget::Stdout,
+            ColorDepth::TrueColor,
             || emit_demo(label),
         );
     }
@@ -238,11 +240,13 @@ fn main() {
     ] {
         log!(sub, desc);
         run_with(
-            &Writer {
-                show_path,
-                show_spans,
-                ..Default::default()
-            },
+            Format::Compact(
+                Formatter::new()
+                    .with_show_path(show_path)
+                    .with_show_spans(show_spans),
+            ),
+            WriterTarget::Stdout,
+            ColorDepth::TrueColor,
             || emit_demo(desc),
         );
     }
@@ -251,18 +255,21 @@ fn main() {
     for (tf, desc) in [
         (None, "default: %H:%M:%S"),
         (
-            Some("%Y-%m-%d %H:%M:%S%.3f".into()),
+            Some("%Y-%m-%d %H:%M:%S%.3f"),
             "custom: %Y-%m-%d %H:%M:%S%.3f",
         ),
     ] {
         log!(sub, desc);
+        let mut formatter = Formatter::new()
+            .with_show_path(false)
+            .with_show_spans(false);
+        if let Some(tf) = tf {
+            formatter = formatter.with_time_format(tf);
+        }
         run_with(
-            &Writer {
-                time_format: tf,
-                show_path: false,
-                show_spans: false,
-                ..Default::default()
-            },
+            Format::Compact(formatter),
+            WriterTarget::Stdout,
+            ColorDepth::TrueColor,
             || emit_demo(desc),
         );
     }
@@ -277,53 +284,53 @@ fn main() {
             eprintln!("    (output to stderr)");
         }
         run_with(
-            &Writer {
-                target,
-                show_path: false,
-                show_spans: false,
-                ..Default::default()
-            },
+            Format::Compact(
+                Formatter::new()
+                    .with_show_path(false)
+                    .with_show_spans(false),
+            ),
+            target,
+            ColorDepth::TrueColor,
             || emit_demo(desc),
         );
     }
 
     section("SPANS");
-    run_with(
-        &Writer {
-            show_spans: true,
-            ..Default::default()
-        },
-        || {
-            tracing::info!("no span");
-            let _a = tracing::info_span!("layer1").entered();
-            tracing::info!("span [layer1]");
-            let _b = tracing::info_span!("layer2", depth = 2).entered();
-            tracing::warn!("span [layer1 > layer2{{depth=2}}]");
-            let _c = tracing::debug_span!("layer3").entered();
-            tracing::error!("span [layer1 > layer2 > layer3]");
-        },
-    );
+    for (icon_name, icons) in &*ICONS {
+        log!(sub, icon_name);
+        run_with(
+            Format::Compact(Formatter::new().with_style(Style {
+                icons: *icons,
+                ..Default::default()
+            })),
+            WriterTarget::Stdout,
+            ColorDepth::TrueColor,
+            || {
+                tracing::info!("no span");
+                let _a = tracing::info_span!("layer1").entered();
+                tracing::info!("span [layer1]");
+                let _b = tracing::info_span!("layer2", depth = 2).entered();
+                tracing::warn!("span [layer1 > layer2{{depth=2}}]");
+                let _c = tracing::debug_span!("layer3").entered();
+                tracing::error!("span [layer1 > layer2 > layer3]");
+            },
+        );
+    }
 
     section("INFRA");
 
     log!(sub, "Level → directive");
     for l in [
-        Level::Error,
-        Level::Warn,
-        Level::Info,
-        Level::Debug,
-        Level::Trace,
-        Level::Off,
+        Level::ERROR,
+        Level::WARN,
+        Level::INFO,
+        Level::DEBUG,
+        Level::TRACE,
     ] {
-        log!(info, &format!("{l:?} → \"{}\"", l.as_directive()));
+        log!(info, &format!("{l} → \"{}\"", l.as_str().to_lowercase()));
     }
-    log!(
-        info,
-        &format!(
-            "Filter::from_directive(\"info,my_crate=debug\") → \"{}\"",
-            Filter::from_directive("info,my_crate=debug").as_directive()
-        )
-    );
+    log!(info, "Off → \"off\"");
+    log!(info, "Filter → EnvFilter::new(\"info,my_crate=debug\")");
 
     section("RELOAD via init");
     log!(sub, "init + runtime reload");
@@ -331,35 +338,25 @@ fn main() {
     drop(std::fs::create_dir_all(dir));
     match init(
         Config::builder()
-            .level(Level::Debug)
-            .with_writer(Writer {
-                format: Format::Compact(LayerConfig::compact()),
-                show_path: false,
-                show_spans: false,
-                target: WriterTarget::Stdout,
-                ..Default::default()
-            })
-            .with_writer(Writer {
-                format: Format::Json(LayerConfig::json()),
-                target: WriterTarget::File(
-                    FileConfig::new(dir.join("app.log")).with_rotation(Rotation::default()),
-                ),
-
-                ..Default::default()
-            })
+            .with_filter(EnvFilter::new("debug"))
+            .with_writers([
+                Writer::stdout().with_format(Format::Compact(
+                    Formatter::new()
+                        .with_show_path(false)
+                        .with_show_spans(false),
+                )),
+                Writer::file(dir.join("app.log")).with_format(Format::Json(JsonOptions::default())),
+            ])
             .build(),
     ) {
-        Ok(mut g) => {
+        Ok(g) => {
             log!(success, "init");
             tracing::info!(init = true, "console + file");
 
-            g.set_level(Level::Warn).unwrap();
-            log!(info, "→ set_level(Warn)");
+            g.set_filter(EnvFilter::new("warn,demo=trace")).unwrap();
+            log!(info, "→ set_filter(\"warn,demo=trace\")");
             tracing::info!("info suppressed");
             tracing::warn!("warn passes");
-
-            g.set_target_level("demo", Level::Trace).unwrap();
-            log!(info, "→ set_target_level(demo, Trace)");
             tracing::trace!(target: "demo", "demo trace passes");
 
             drop(g);

@@ -20,21 +20,11 @@ fn formatter_builder() {
         .with_time_format("%Y-%m-%d %H:%M:%S")
         .with_path_width(40)
         .with_show_path(false)
-        .with_show_spans(false)
-        .with_theme(Theme::monokai());
+        .with_show_spans(false);
 
     assert_eq!(fmt.path_width, 40);
     assert!(!fmt.show_path);
     assert!(!fmt.show_spans);
-}
-
-#[test]
-fn formatter_with_theme_changes_theme() {
-    let fmt = Formatter::new().with_theme(Theme::monokai());
-    assert_ne!(
-        format!("{:?}", fmt.style.theme),
-        format!("{:?}", Theme::acta())
-    );
 }
 
 #[test]
