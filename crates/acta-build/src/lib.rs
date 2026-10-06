@@ -9,7 +9,7 @@
 //!
 //! ```toml
 //! [build-dependencies]
-//! acta-build = "0.1"
+//! acta-build = "0.x"
 //! ```
 //!
 //! In `build.rs`:
