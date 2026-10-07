@@ -8,7 +8,7 @@ repository = "https://github.com/Sn0wo2/acta"
 license = "Apache-2.0"
 
 [dependencies]
-acta = { path = "../..", version = "0.4.0", features = [
+acta = { path = "../..", version = "0.5.3", features = [
     "async",
     "file",
     "compress",
