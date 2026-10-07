@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -16,118 +16,168 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.event.repository.default_branch }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
 jobs:
-  release:
-    name: Release
+  prepare:
+    name: Prepare release
     runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref_name }}
-      cancel-in-progress: false
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && !inputs.snapshot && github.event.repository.default_branch || github.ref }}
           fetch-depth: 0
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-gnu,aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,x86_64-apple-darwin,aarch64-apple-darwin
-
-      - name: Install rust-src
-        run: rustup component add rust-src
+          components: clippy,rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: acta-cargo
+          shared-key: ${{ github.event.repository.name }}-cargo
           cache-on-failure: true
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
 
       - name: Install cargo tools
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-zigbuild,cargo-edit
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install macOS SDK
-        run: bun scripts/install-macos-sdk.js
-
-      - name: Ensure build script is executable
-        run: chmod +x scripts/cargo-or-zigbuild.js
+          tool: cargo-edit,cargo-deny,cargo-audit
 
       - name: Normalize version
+        id: version
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            VERSION="${{ github.ref_name }}"
-          else
-            VERSION="${{ inputs.version }}"
-          fi
-          VERSION="${VERSION#v}"
+          VERSION=${RELEASE_VERSION#v}
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag version
+        if: github.event_name == 'push'
+        run: |
+          python3 - <<'EOF'
+          import json, os, subprocess
+
+          metadata = json.loads(
+              subprocess.check_output(["cargo", "metadata", "--no-deps", "--format-version", "1"])
+          )
+          member = next(
+              p
+              for p in metadata["packages"]
+              if p["id"] in metadata["workspace_default_members"]
+          )
+          version = os.environ["VERSION"]
+          if member["version"] != version:
+              raise SystemExit(
+                  f"tag v{version} does not match {member['name']} version {member['version']}"
+              )
+          print(f"validated v{version} == {member['name']} {member['version']}")
+          EOF
 
       - name: Bump version
-        if: "!inputs.snapshot"
-        run: cargo set-version "$VERSION"
+        if: "github.event_name == 'workflow_dispatch' && !inputs.snapshot"
+        run: cargo set-version --workspace "$VERSION"
 
       - name: Commit version bump
-        if: "!inputs.snapshot"
+        if: "github.event_name == 'workflow_dispatch' && !inputs.snapshot"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet || git commit -m "chore(release): bump version to $VERSION"
 
-      - name: Tag release (Manual only)
+      - name: Run gated checks
+        run: make ci
+
+      - name: Push version commit and tag
         if: "github.event_name == 'workflow_dispatch' && !inputs.snapshot"
-        run: git tag "v$VERSION"
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch origin "$DEFAULT_BRANCH"
+          git rebase "origin/$DEFAULT_BRANCH"
+          git tag "v$VERSION"
+          git push origin "HEAD:$DEFAULT_BRANCH" --tags
 
-      - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v7
+      - name: Record release commit
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build artifacts
+    permissions:
+      contents: read
+    needs: prepare
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      version: ${{ needs.prepare.outputs.version }}
+      snapshot: ${{ inputs.snapshot == true }}
+
+  publish:
+    name: Publish release
+    runs-on: ubuntu-latest
+    if: "!inputs.snapshot"
+    needs: [prepare, build]
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
-          distribution: goreleaser
-          version: "~> v2"
-          install-only: true
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
 
-      - name: Run GoReleaser
-        if: "!inputs.snapshot"
-        run: make release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: v${{ env.VERSION }}
-          SDKROOT: /opt/MacOSX11.3.sdk
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ${{ github.event.repository.name }}-*-builds
+          merge-multiple: true
+          path: dist
 
-      - name: Run GoReleaser (snapshot)
-        if: inputs.snapshot
-        run: make release-snapshot
+      - name: Generate checksums
+        run: |
+          cd dist
+          shopt -s nullglob
+          files=(*.tar.gz *.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No archives found" >&2
+            exit 1
+          fi
+          sha256sum "${files[@]}" > checksums.txt
+
+      - name: Create GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: v${{ env.VERSION }}
-          SDKROOT: /opt/MacOSX11.3.sdk
-      - name: Push version bump to main
-        if: "!inputs.snapshot"
-        run: git push origin HEAD:main --tags
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            gh release upload "v$VERSION" dist/* --clobber
+          else
+            gh release create "v$VERSION" dist/* --verify-tag --generate-notes --title "v$VERSION" "${flags[@]}"
+          fi
 
       - name: Publish to crates.io
-        if: "!inputs.snapshot"
         uses: katyo/publish-crates@v2
         with:
           registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           args: --allow-dirty
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ inputs.snapshot && 'snapshot-artifacts' || 'release-artifacts' }}
-          path: dist/*
-          retention-days: ${{ inputs.snapshot && 7 || 30 }}

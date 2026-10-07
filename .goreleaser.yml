@@ -8,6 +8,7 @@ builds:
     command: build
     tool: ./scripts/cargo-or-zigbuild.js
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
     targets:
       - x86_64-unknown-linux-gnu
     flags:
@@ -22,6 +23,7 @@ builds:
     command: build
     tool: ./scripts/cargo-or-zigbuild.js
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
     targets:
       - x86_64-unknown-linux-gnu
     flags:
@@ -36,6 +38,7 @@ builds:
     command: build
     tool: ./scripts/cargo-or-zigbuild.js
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
     targets:
       - aarch64-unknown-linux-gnu
     flags:
@@ -48,6 +51,7 @@ builds:
     command: build
     tool: ./scripts/cargo-or-zigbuild.js
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
     targets:
       - armv7-unknown-linux-gnueabihf
     flags:
@@ -60,6 +64,7 @@ builds:
     command: build
     tool: ./scripts/cargo-or-zigbuild.js
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
     targets:
       - x86_64-pc-windows-gnu
     flags:
@@ -74,6 +79,7 @@ builds:
     command: build
     tool: ./scripts/cargo-or-zigbuild.js
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
     targets:
       - x86_64-pc-windows-gnu
     flags:
@@ -86,8 +92,9 @@ builds:
   - id: acta-darwin-amd64-v2
     builder: rust
     command: build
-    tool: ./scripts/cargo-or-zigbuild.js
+    tool: cargo
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}'
     targets:
       - x86_64-apple-darwin
     flags:
@@ -100,8 +107,9 @@ builds:
   - id: acta-darwin-amd64-v3
     builder: rust
     command: build
-    tool: ./scripts/cargo-or-zigbuild.js
+    tool: cargo
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}'
     targets:
       - x86_64-apple-darwin
     flags:
@@ -114,8 +122,9 @@ builds:
   - id: acta-darwin-arm64
     builder: rust
     command: build
-    tool: ./scripts/cargo-or-zigbuild.js
+    tool: cargo
     binary: acta-debug
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}'
     targets:
       - aarch64-apple-darwin
     flags:
@@ -126,6 +135,24 @@ source:
   enabled: false
 
 archives:
+  - id: source
+    meta: true
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+    files:
+      - src/**
+      - crates/**
+      - tests/**
+      - benches/**
+      - examples/**
+      - .cargo/**
+      - build.rs
+      - Cargo.toml
+      - Cargo.lock
+      - README.md
+      - LICENSE
+
   - id: linux-amd64-v2
     ids:
       - acta-linux-amd64-v2
@@ -207,12 +234,4 @@ snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
 changelog:
-  use: github
-
-release:
-  github:
-    owner: Sn0wo2
-    name: acta
-  draft: false
-  prerelease: auto
-  name_template: "v{{ .Version }}"
+  disable: true

@@ -1,6 +1,9 @@
-.PHONY: all fix lint test test-all test-no-default fmt fmt-check clippy publish-dry run debug build release release-snapshot check clean check-all-features check-no-default check-wasm
+.DEFAULT_GOAL := ci
+CARGO_FLAGS ?=
 
-all: check
+.PHONY: all fmt fmt-check check check-all-features check-no-default check-wasm fix lint clippy test test-all test-no-default doc deny audit ci build publish-dry run check-debug release release-snapshot clean
+
+all: ci
 
 fmt:
 	cargo fmt --all
@@ -8,53 +11,65 @@ fmt:
 fmt-check:
 	cargo fmt --all -- --check
 
-clippy:
-	cargo clippy --all-features -- -D warnings
+check:
+	cargo check --all-targets $(CARGO_FLAGS)
+
+check-all-features:
+	cargo check --workspace --all-targets --all-features $(CARGO_FLAGS)
+
+check-no-default:
+	cargo check -p acta --all-targets --no-default-features $(CARGO_FLAGS)
+
+check-wasm:
+	cargo check -p acta --lib --no-default-features --features wasm-console --target wasm32-unknown-unknown $(CARGO_FLAGS)
+
+fix: fmt
+	cargo clippy --workspace --all-targets --all-features --fix --allow-dirty --allow-staged $(CARGO_FLAGS)
 
 lint: fmt-check clippy
 
-fix:
-	cargo fix --all-features --allow-dirty
+clippy:
+	cargo clippy --workspace --all-targets --all-features $(CARGO_FLAGS) -- -D warnings
 
 test:
-	cargo test --all --all-features
+	cargo test --workspace --all-features $(CARGO_FLAGS)
 
 test-all:
-	cargo test --all
+	cargo test --workspace $(CARGO_FLAGS)
 
 test-no-default:
-	cargo test -p acta --no-default-features
+	cargo test -p acta --no-default-features $(CARGO_FLAGS)
 
-check-all-features:
-	cargo check --all-targets --all-features
+doc:
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features $(CARGO_FLAGS)
 
-check-no-default:
-	cargo check -p acta --all-targets --no-default-features
+deny:
+	cargo deny check
 
-check-wasm:
-	cargo check -p acta --lib --no-default-features --features wasm-console --target wasm32-unknown-unknown
+audit:
+	cargo audit
 
-check: fix lint test test-all test-no-default check-all-features check-no-default publish-dry
+ci: fmt-check check check-all-features check-no-default clippy test test-all test-no-default doc deny audit
+
+build:
+	cargo build --workspace --all-features $(CARGO_FLAGS)
 
 publish-dry:
 	cargo publish --manifest-path crates/acta-build/Cargo.toml --dry-run --allow-dirty
 	cargo publish --dry-run --allow-dirty
 
 run:
-	cargo run -p acta-debug --all-features
+	cargo run -p acta-debug --all-features $(CARGO_FLAGS)
 
 check-debug:
-	cargo check -p acta-debug --all-features
-
-build:
-	goreleaser build --snapshot --clean --skip=before --config .goreleaser.yml
+	cargo check -p acta-debug --all-features $(CARGO_FLAGS)
 
 release:
-	goreleaser release --clean --skip=before --skip=validate --config .goreleaser.yml
+	goreleaser release --clean --skip=before,publish,validate --config .goreleaser.yml
 
 release-snapshot:
-	goreleaser release --snapshot --clean --skip=before --skip=validate --config .goreleaser.yml
+	goreleaser release --snapshot --clean --skip=before,publish,validate --config .goreleaser.yml
 
 clean:
 	cargo clean
-	rm -rf dist/
+	rm -rf dist

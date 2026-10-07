@@ -8,50 +8,34 @@ permissions:
 
 jobs:
   test:
-    name: Test
+    name: Test (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - id: default
-            make_target: test-all
-          - id: all-features
-            make_target: test
-          - id: no-default
-            make_target: test-no-default
+        target: [test, test-all, test-no-default]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@v7
         with:
-          shared-key: acta-cargo
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ github.event.repository.name }}-cargo
           cache-on-failure: true
-
-      - name: Run tests
-        run: make ${{ matrix.make_target }}
+      - run: make ${{ matrix.target }}
 
   wasm:
     name: Wasm
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: acta-cargo
+          shared-key: ${{ github.event.repository.name }}-cargo
           cache-on-failure: true
-
-      - name: Check wasm32
-        run: make check-wasm
+      - run: make check-wasm

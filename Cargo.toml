@@ -112,7 +112,7 @@ variant_size_differences = "warn"
 elided_lifetimes_in_paths = "warn"
 
 [lints.clippy]
-all = "warn"
+all = { level = "warn", priority = -1 }
 as_ptr_cast_mut = "warn"
 assigning_clones = "warn"
 branches_sharing_code = "warn"
