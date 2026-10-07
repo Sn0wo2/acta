@@ -1,4 +1,4 @@
-name: Lint
+name: Rust Lint
 
 on:
   workflow_call:
@@ -8,84 +8,105 @@ permissions:
 
 jobs:
   check:
-    name: Check (${{ matrix.target }})
+    name: Check ${{ matrix.target }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         target:
           [fmt-check, clippy, doc, check, check-all-features, check-no-default]
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ github.event.repository.name }}-cargo
           cache-on-failure: true
-      - run: make ${{ matrix.target }}
+      - name: Run ${{ matrix.target }}
+        run: make ${{ matrix.target }}
 
   dependencies:
-    name: Dependencies (${{ matrix.tool }})
+    name: Check ${{ matrix.tool }} dependencies
     runs-on: ubuntu-latest
     strategy:
       matrix:
         tool: [deny, audit]
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ github.event.repository.name }}-cargo
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2
+      - name: Install cargo-${{ matrix.tool }}
+        uses: taiki-e/install-action@v2
         with:
           tool: cargo-${{ matrix.tool }}
-      - run: make ${{ matrix.tool }}
+      - name: Run ${{ matrix.tool }} checks
+        run: make ${{ matrix.tool }}
 
   geiger:
-    name: Cargo Geiger
+    name: Check unsafe Rust with Geiger
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
+      - name: Set up Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Cache Geiger data
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ github.event.repository.name }}-geiger
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2
+      - name: Install cargo-geiger
+        uses: taiki-e/install-action@v2
         with:
           tool: cargo-geiger
-      - run: cargo +nightly geiger --all-features --output-format GitHubMarkdown > geiger-report.md 2>&1 || true
-      - uses: actions/upload-artifact@v7
+      - name: Run Cargo Geiger
+        run: cargo +nightly geiger --all-features --output-format GitHubMarkdown > geiger-report.md 2>&1 || true
+      - name: Upload Geiger report
+        uses: actions/upload-artifact@v7
         with:
           name: geiger-report-${{ github.sha }}
           path: geiger-report.md
           retention-days: 30
-      - run: cat geiger-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Add Geiger report to job summary
+        run: cat geiger-report.md >> "$GITHUB_STEP_SUMMARY"
 
   semver:
-    name: Semver Checks
+    name: Check semantic versioning
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ github.event.repository.name }}-cargo
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@v2
         with:
           tool: cargo-semver-checks
-      - run: cargo semver-checks check-release --all-features
+      - name: Check release compatibility
+        run: cargo semver-checks check-release --all-features

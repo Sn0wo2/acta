@@ -1,6 +1,7 @@
-#!/usr/bin/env bun
-import { spawnSync } from "node:child_process"
-import { resolve } from "node:path"
+#!/usr/bin/env node
+const { createHash } = require("node:crypto")
+const { spawnSync } = require("node:child_process")
+const { resolve } = require("node:path")
 
 const rustc = spawnSync("rustc", ["-vV"], { encoding: "utf8" })
 if (rustc.status !== 0) {
@@ -36,7 +37,7 @@ if (target && target !== host) {
       "target",
       "zigbuild",
       target,
-      Bun.hash(process.env.RUSTFLAGS ?? "").toString(16),
+      createHash("sha256").update(process.env.RUSTFLAGS ?? "").digest("hex"),
     ),
   }
   if (args[0] === "build") args = args.slice(1)

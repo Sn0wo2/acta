@@ -1,4 +1,4 @@
-name: CI
+name: Rust CI
 
 on:
   push:
@@ -16,13 +16,13 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint
+    name: Run lint checks
     uses: ./.github/workflows/lint.yml
 
   build:
-    name: Build
+    name: Build artifacts
     uses: ./.github/workflows/build.yml
 
   test:
-    name: Test
+    name: Run tests
     uses: ./.github/workflows/test.yml

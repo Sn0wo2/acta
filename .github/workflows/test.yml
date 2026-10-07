@@ -1,4 +1,4 @@
-name: Test
+name: Rust Tests
 
 on:
   workflow_call:
@@ -8,34 +8,42 @@ permissions:
 
 jobs:
   test:
-    name: Test (${{ matrix.target }})
+    name: Run ${{ matrix.target }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         target: [test, test-all, test-no-default]
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ github.event.repository.name }}-cargo
           cache-on-failure: true
-      - run: make ${{ matrix.target }}
+      - name: Run ${{ matrix.target }}
+        run: make ${{ matrix.target }}
 
   wasm:
     name: Wasm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ github.event.repository.name }}-cargo
           cache-on-failure: true
-      - run: make check-wasm
+      - name: Check WebAssembly target
+        run: make check-wasm

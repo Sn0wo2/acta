@@ -1,4 +1,4 @@
-name: Release
+name: Rust Release
 
 on:
   push:
@@ -38,7 +38,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && !inputs.snapshot && github.event.repository.default_branch || github.ref }}
+          ref: ${{ inputs.snapshot == true && github.ref || github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: Set up Rust
@@ -66,34 +66,12 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Validate tag version
-        if: github.event_name == 'push'
-        run: |
-          python3 - <<'EOF'
-          import json, os, subprocess
-
-          metadata = json.loads(
-              subprocess.check_output(["cargo", "metadata", "--no-deps", "--format-version", "1"])
-          )
-          member = next(
-              p
-              for p in metadata["packages"]
-              if p["id"] in metadata["workspace_default_members"]
-          )
-          version = os.environ["VERSION"]
-          if member["version"] != version:
-              raise SystemExit(
-                  f"tag v{version} does not match {member['name']} version {member['version']}"
-              )
-          print(f"validated v{version} == {member['name']} {member['version']}")
-          EOF
-
       - name: Bump version
-        if: "github.event_name == 'workflow_dispatch' && !inputs.snapshot"
+        if: ${{ github.event_name == 'push' || !inputs.snapshot }}
         run: cargo set-version --workspace "$VERSION"
 
       - name: Commit version bump
-        if: "github.event_name == 'workflow_dispatch' && !inputs.snapshot"
+        if: ${{ github.event_name == 'push' || !inputs.snapshot }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -104,14 +82,25 @@ jobs:
         run: make ci
 
       - name: Push version commit and tag
-        if: "github.event_name == 'workflow_dispatch' && !inputs.snapshot"
+        if: ${{ github.event_name == 'push' || !inputs.snapshot }}
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           git fetch origin "$DEFAULT_BRANCH"
           git rebase "origin/$DEFAULT_BRANCH"
-          git tag "v$VERSION"
-          git push origin "HEAD:$DEFAULT_BRANCH" --tags
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            TAG_SHA=$(git ls-remote origin "$GITHUB_REF" | cut -f1)
+            if [[ -z "$TAG_SHA" ]]; then
+              echo "Could not find remote tag $GITHUB_REF" >&2
+              exit 1
+            fi
+            git tag -f "v$VERSION"
+            git push --atomic --force-with-lease="$GITHUB_REF:$TAG_SHA" origin \
+              "HEAD:$DEFAULT_BRANCH" "HEAD:$GITHUB_REF"
+          else
+            git tag "v$VERSION"
+            git push origin "HEAD:$DEFAULT_BRANCH" --tags
+          fi
 
       - name: Record release commit
         id: sha

@@ -1,4 +1,4 @@
-name: Build
+name: Rust Build
 
 on:
   workflow_call:
@@ -24,7 +24,7 @@ env:
 
 jobs:
   linux-windows:
-    name: Build linux-windows
+    name: Build Linux and Windows
     runs-on: ubuntu-latest
     env:
       BUILD_PLATFORM: linux-windows
@@ -83,7 +83,7 @@ jobs:
           retention-days: ${{ inputs.snapshot && 7 || 30 }}
 
   macos:
-    name: Build macos
+    name: Build macOS
     runs-on: macos-latest
     env:
       BUILD_PLATFORM: macos

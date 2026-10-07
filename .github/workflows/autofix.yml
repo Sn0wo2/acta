@@ -1,4 +1,4 @@
-name: Rust auto-fix
+name: Rust Auto-fix
 
 on:
   pull_request:
@@ -36,7 +36,7 @@ jobs:
       - name: Apply Clippy fixes
         run: cargo clippy --workspace --all-targets --all-features --fix --allow-dirty --allow-staged
 
-      - name: Create auto-fix pull request
+      - name: Open auto-fix pull request
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
