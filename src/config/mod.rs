@@ -518,6 +518,11 @@ pub struct Writer {
     pub(crate) color_depth: Option<ColorDepth>,
     #[cfg_attr(feature = "serde", serde(with = "serde_adapters::levels"))]
     pub(crate) stacktrace: Vec<tracing::Level>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, with = "serde_adapters::optional_levels")
+    )]
+    pub(crate) levels: Option<Vec<tracing::Level>>,
     pub(crate) target: WriterTarget,
 }
 
@@ -527,6 +532,7 @@ impl Default for Writer {
             format: Format::default(),
             color_depth: None,
             stacktrace: vec![tracing::Level::ERROR],
+            levels: None,
             target: WriterTarget::Stdout,
         }
     }
@@ -585,6 +591,18 @@ impl Writer {
         } else {
             self.stacktrace.clear();
         }
+        self
+    }
+
+    #[must_use]
+    pub fn with_levels(mut self, levels: impl IntoIterator<Item = tracing::Level>) -> Self {
+        let mut unique = Vec::new();
+        for level in levels {
+            if !unique.contains(&level) {
+                unique.push(level);
+            }
+        }
+        self.levels = Some(unique);
         self
     }
 }

@@ -37,3 +37,36 @@ pub(crate) mod levels {
             .collect()
     }
 }
+
+pub(crate) mod optional_levels {
+    use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer};
+    use tracing::Level;
+
+    pub(crate) fn serialize<S: Serializer>(
+        levels: &Option<Vec<Level>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        levels
+            .as_ref()
+            .map(|levels| levels.iter().map(Level::as_str).collect::<Vec<_>>())
+            .serialize(serializer)
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Vec<Level>>, D::Error> {
+        Option::<Vec<String>>::deserialize(deserializer)?
+            .map(|levels| {
+                levels
+                    .iter()
+                    .map(|level| {
+                        level
+                            .trim()
+                            .parse::<Level>()
+                            .map_err(serde::de::Error::custom)
+                    })
+                    .collect()
+            })
+            .transpose()
+    }
+}

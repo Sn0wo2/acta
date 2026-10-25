@@ -24,6 +24,7 @@ use crate::writer::custom_async;
 use crate::writer::native_async;
 #[cfg(acta_wasm_console)]
 use crate::writer::wasm;
+use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::layer::Layered;
@@ -44,6 +45,7 @@ pub fn init(config: Config) -> crate::Result<TracingGuard> {
     let mut async_guards = Vec::new();
 
     for writer in writers {
+        let event_levels = writer.levels;
         let make_writer = SharedWriter(match &writer.target {
             WriterTarget::Custom(writer) => Arc::clone(writer),
             #[cfg(not(acta_wasm_console))]
@@ -242,7 +244,7 @@ pub fn init(config: Config) -> crate::Result<TracingGuard> {
                 tracing::Level::TRACE => levels | 16,
             });
 
-        layers.push(match writer.format {
+        let layer = match writer.format {
             Format::Custom(formatter) => base
                 .event_format(Stacktrace {
                     inner: CustomFormatter(formatter),
@@ -283,7 +285,17 @@ pub fn init(config: Config) -> crate::Result<TracingGuard> {
                     flatten_event: Some(cfg.flatten_event),
                 })
                 .boxed(),
-        });
+        };
+        let layer = if let Some(levels) = event_levels {
+            layer
+                .with_filter(filter_fn(move |metadata| {
+                    !metadata.is_event() || levels.contains(metadata.level())
+                }))
+                .boxed()
+        } else {
+            layer
+        };
+        layers.push(layer);
     }
     let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(filter);
 
