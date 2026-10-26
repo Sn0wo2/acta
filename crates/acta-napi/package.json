@@ -13,7 +13,7 @@
     "acta_napi.*.node"
   ],
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.4"
+    "@napi-rs/cli": "^3.0.0"
   },
   "napi": {
     "name": "acta_napi",
