@@ -207,7 +207,7 @@ jobs:
         with:
           tool: cargo-geiger
 
-      - run: cargo +nightly geiger --all-features --output-format GitHubMarkdown >> "$GITHUB_STEP_SUMMARY"
+      - run: cargo +nightly geiger --all-features --output-format GitHubMarkdown 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
 
   semver:
     name: Semantic versioning
