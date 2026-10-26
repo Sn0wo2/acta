@@ -5,7 +5,9 @@
 
 mod builder;
 mod config;
+mod event;
 mod fmt;
+mod span;
 pub(crate) mod writer;
 
 #[cfg(acta_wasm_blocking)]
@@ -14,14 +16,16 @@ compile_error!(
      supported on wasm32; build with `default-features = false` and enable `wasm-console`"
 );
 
-pub use builder::{TracingGuard, init};
+pub use builder::{Logger, TracingGuard, init};
 #[cfg(feature = "file")]
 pub use config::FileConfig;
 pub use config::{
     ColorDepth, Config, ConfigBuilder, Format, Icons, JsonOptions, LevelAlignment, LevelLabels,
     PrettyOptions, Rotation, Style, Theme, Writer, WriterTarget,
 };
+pub use event::Event;
 pub use fmt::Formatter;
+pub use writer::buffered::{BufferedWriteGuard, BufferedWriter};
 
 #[cfg(acta_async)]
 pub use config::AsyncMode;
@@ -40,6 +44,16 @@ pub enum ActaError {
     LogTracer(#[from] tracing_log::log_tracer::SetLoggerError),
     #[error("custom-async writers require an active tokio runtime")]
     RuntimeUnavailable,
+    #[error("event metadata schema limit reached (maximum 4096 schemas)")]
+    EventSchemaLimit,
+    #[error("event metadata schemas exceed the 4 MiB registry budget")]
+    EventSchemaBudget,
+    #[error("event field name `{0}` is reserved for the event message")]
+    EventReservedField(String),
+    #[error("failed to allocate event metadata registry storage")]
+    EventSchemaAllocation,
+    #[error("span operation failed: {0}")]
+    Span(String),
 }
 
 pub type Result<T> = std::result::Result<T, ActaError>;

@@ -1,128 +1,98 @@
-name: Rust Build
+name: Build
 
 on:
   workflow_call:
     inputs:
       ref:
-        required: false
         type: string
-        default: ""
       version:
-        required: false
         type: string
-        default: ""
       snapshot:
-        required: false
         type: boolean
         default: true
 
-permissions:
-  contents: read
+permissions: {}
 
 env:
-  GORELEASER_CURRENT_TAG: ${{ inputs.version && format('v{0}', inputs.version) || '' }}
+  GORELEASER_CURRENT_TAG: ${{ inputs.version && format('v{0}', inputs.version) }}
 
 jobs:
-  linux-windows:
-    name: Build Linux and Windows
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-windows
+            os: ubuntu-latest
+            targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-gnu,aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf
+            artifacts: |
+              dist/*.tar.gz
+              dist/*.zip
+          - platform: macos
+            os: macos-latest
+            targets: x86_64-apple-darwin,aarch64-apple-darwin
+            artifacts: |
+              dist/*_darwin_*.tar.gz
+              dist/*_macos.tar.gz
     env:
-      BUILD_PLATFORM: linux-windows
+      BUILD_PLATFORM: ${{ matrix.platform }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-gnu,aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf
+          targets: ${{ matrix.targets }}
           components: rust-src
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        if: ${{ !inputs.snapshot }}
         with:
-          shared-key: ${{ github.event.repository.name }}-cargo
-          cache-on-failure: true
+          tool: cargo-edit
 
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
+      - name: Sync workspace version
+        if: ${{ !inputs.snapshot }}
+        run: cargo set-version --workspace "$VERSION"
+        env:
+          VERSION: ${{ inputs.version }}
 
-      - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-${{ matrix.platform }}
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-zigbuild
+
+      - name: Install mingw-w64
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      - uses: mlugg/setup-zig@v2
 
       - name: Ensure build script is executable
         run: chmod +x scripts/cargo-or-zigbuild.js
 
-      - name: Install GoReleaser
+      - name: Build and package archives
         uses: goreleaser/goreleaser-action@v7
         with:
-          version: "~> v2"
-          install-only: true
+          args: release --clean ${{ inputs.snapshot && '--snapshot' || '--skip=publish,validate' }}
 
-      - name: Build
-        run: make build
-
-      - name: Package archives
-        run: ${{ inputs.snapshot && 'make release-snapshot' || 'make release' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
-          name: ${{ github.event.repository.name }}-linux-windows-builds
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-          retention-days: ${{ inputs.snapshot && 7 || 30 }}
-
-  macos:
-    name: Build macOS
-    runs-on: macos-latest
-    env:
-      BUILD_PLATFORM: macos
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin,aarch64-apple-darwin
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ github.event.repository.name }}-cargo
-          cache-on-failure: true
-
-      - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          version: "~> v2"
-          install-only: true
-
-      - name: Build
-        run: make build
-
-      - name: Package archives
-        run: ${{ inputs.snapshot && 'make release-snapshot' || 'make release' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ github.event.repository.name }}-macos-builds
-          path: dist/*_darwin_*.tar.gz
+          name: ${{ github.event.repository.name }}-${{ matrix.platform }}-builds
+          path: ${{ matrix.artifacts }}
+          compression-level: 0
+          if-no-files-found: error
           retention-days: ${{ inputs.snapshot && 7 || 30 }}

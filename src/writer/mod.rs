@@ -3,6 +3,8 @@ use tracing::Metadata;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 
+pub(crate) mod buffered;
+
 #[derive(Debug)]
 pub(crate) struct SharedWriter(pub(crate) Arc<BoxMakeWriter>);
 

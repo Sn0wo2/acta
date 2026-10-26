@@ -71,16 +71,13 @@ impl CustomAsyncWriter {
             }
         });
 
-        let guard = CustomAsyncGuard {
-            progress: Arc::clone(&progress),
-        };
         Ok((
             Self {
                 sender,
-                progress,
+                progress: Arc::clone(&progress),
                 dropped: AtomicU64::new(0),
             },
-            guard,
+            CustomAsyncGuard { progress },
         ))
     }
 }

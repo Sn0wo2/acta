@@ -120,7 +120,7 @@ static THEMES: LazyLock<SmallVec<[(&str, Theme); 8]>> = LazyLock::new(|| {
 
 fn main() {
     section("FORMAT × ICON");
-    let formats: &[(&str, Format)] = &[
+    let formats = &[
         (
             "compact",
             Format::Compact(

@@ -1,0 +1,19 @@
+[package]
+name = "acta-napi"
+version.workspace = true
+rust-version.workspace = true
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+acta = { path = "../..", default-features = false, features = ["serde", "file", "compress", "native-async"] }
+serde_json = "1"
+tracing = "0.1"
+napi = { version = "2.16.17", default-features = false, features = ["napi8", "dyn-symbols", "serde-json"] }
+napi-derive = { version = "2.16.13", features = ["type-def"] }
+
+[build-dependencies]
+napi-build = "2.6.0"

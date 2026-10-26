@@ -1,140 +1,141 @@
 version: 2
-
 project_name: acta
 
+env:
+  - MACOSX_DEPLOYMENT_TARGET=11.0
+
+before:
+  hooks:
+    - bun install --cwd crates/acta-napi --frozen-lockfile && bun run --cwd crates/acta-napi build:release
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target x86_64-unknown-linux-gnu.2.17{{ else }}echo Skipping Linux amd64 bindings{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target aarch64-unknown-linux-gnu.2.17{{ else }}echo Skipping Linux arm64 bindings{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target x86_64-pc-windows-gnu{{ else }}echo Skipping Windows amd64 bindings{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target aarch64-pc-windows-gnullvm --config ''target.aarch64-pc-windows-gnullvm.rustflags=["-l","unwind"]''{{ else }}echo Skipping Windows arm64 bindings{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --release -p acta-ffi --target x86_64-apple-darwin --config ''target.x86_64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/libacta_ffi.dylib"]''{{ else }}echo Skipping macOS amd64 FFI{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --release -p acta-ffi --target aarch64-apple-darwin --config ''target.aarch64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/libacta_ffi.dylib"]''{{ else }}echo Skipping macOS arm64 FFI{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --release -p acta-napi --target x86_64-apple-darwin --config ''target.x86_64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/acta_napi.node"]''{{ else }}echo Skipping macOS amd64 N-API{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --release -p acta-napi --target aarch64-apple-darwin --config ''target.aarch64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/acta_napi.node"]''{{ else }}echo Skipping macOS arm64 N-API{{ end }}'
+    - 'mkdir -p target/napi/{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/x86_64-unknown-linux-gnu/release/libacta_napi.so target/napi/linux-windows/acta_napi.linux-x64-gnu.node{{ else }}echo Skipping Linux amd64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/aarch64-unknown-linux-gnu/release/libacta_napi.so target/napi/linux-windows/acta_napi.linux-arm64-gnu.node{{ else }}echo Skipping Linux arm64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/x86_64-pc-windows-gnu/release/acta_napi.dll target/napi/linux-windows/acta_napi.win32-x64-msvc.node{{ else }}echo Skipping Windows amd64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/aarch64-pc-windows-gnullvm/release/acta_napi.dll target/napi/linux-windows/acta_napi.win32-arm64-msvc.node{{ else }}echo Skipping Windows arm64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cp target/x86_64-apple-darwin/release/libacta_napi.dylib target/napi/macos/acta_napi.darwin-x64.node{{ else }}echo Skipping macOS amd64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cp target/aarch64-apple-darwin/release/libacta_napi.dylib target/napi/macos/acta_napi.darwin-arm64.node{{ else }}echo Skipping macOS arm64 N-API staging{{ end }}'
+
 builds:
-  - id: acta-linux-amd64-v2
+  - &darwin-build
+    id: darwin-arm64
     builder: rust
-    command: build
+    binary: acta-debug
     tool: ./scripts/cargo-or-zigbuild.js
-    binary: acta-debug
-    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
-    targets:
-      - x86_64-unknown-linux-gnu
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
-    env:
-      - RUSTFLAGS=-C target-cpu=x86-64-v2
-
-  - id: acta-linux-amd64-v3
-    builder: rust
-    command: build
-    tool: ./scripts/cargo-or-zigbuild.js
-    binary: acta-debug
-    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
-    targets:
-      - x86_64-unknown-linux-gnu
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
-    env:
-      - RUSTFLAGS=-C target-cpu=x86-64-v3
-
-  - id: acta-linux-arm64
-    builder: rust
-    command: build
-    tool: ./scripts/cargo-or-zigbuild.js
-    binary: acta-debug
-    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
-    targets:
-      - aarch64-unknown-linux-gnu
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
-
-  - id: acta-linux-armv7
-    builder: rust
-    command: build
-    tool: ./scripts/cargo-or-zigbuild.js
-    binary: acta-debug
-    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
-    targets:
-      - armv7-unknown-linux-gnueabihf
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
-
-  - id: acta-windows-amd64-v2
-    builder: rust
-    command: build
-    tool: ./scripts/cargo-or-zigbuild.js
-    binary: acta-debug
-    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
-    targets:
-      - x86_64-pc-windows-gnu
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
-    env:
-      - RUSTFLAGS=-C target-cpu=x86-64-v2
-
-  - id: acta-windows-amd64-v3
-    builder: rust
-    command: build
-    tool: ./scripts/cargo-or-zigbuild.js
-    binary: acta-debug
-    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
-    targets:
-      - x86_64-pc-windows-gnu
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
-    env:
-      - RUSTFLAGS=-C target-cpu=x86-64-v3
-
-  - id: acta-darwin-amd64-v2
-    builder: rust
-    command: build
-    tool: cargo
-    binary: acta-debug
     skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}'
-    targets:
-      - x86_64-apple-darwin
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
-    env:
-      - RUSTFLAGS=-C target-cpu=x86-64-v2
+    targets: [aarch64-apple-darwin]
+    flags: [--release, --all-features, --package=acta-debug, --bin=acta-debug]
 
-  - id: acta-darwin-amd64-v3
-    builder: rust
-    command: build
-    tool: cargo
-    binary: acta-debug
-    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}'
-    targets:
-      - x86_64-apple-darwin
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
-    env:
-      - RUSTFLAGS=-C target-cpu=x86-64-v3
+  - &linux-build
+    <<: *darwin-build
+    id: linux-arm
+    tool: ./scripts/cargo-or-zigbuild.js
+    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}'
+    targets: [aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf]
 
-  - id: acta-darwin-arm64
-    builder: rust
-    command: build
-    tool: cargo
-    binary: acta-debug
-    skip: '{{ ne (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}'
-    targets:
-      - aarch64-apple-darwin
-    flags:
-      - --release
-      - --all-features
-      - --package=acta-debug
+  - &linux-amd64-build
+    <<: *linux-build
+    id: linux-windows-amd64-v2
+    targets: [x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu]
+    env:
+      - 'RUSTFLAGS={{ index .Env "RUSTFLAGS" }} -C target-cpu=x86-64-v2'
+
+  - <<: *linux-amd64-build
+    id: linux-windows-amd64-v3
+    env:
+      - 'RUSTFLAGS={{ index .Env "RUSTFLAGS" }} -C target-cpu=x86-64-v3'
+
+  - &darwin-amd64-build
+    <<: *darwin-build
+    id: darwin-amd64-v2
+    targets: [x86_64-apple-darwin]
+    env:
+      - 'RUSTFLAGS={{ index .Env "RUSTFLAGS" }} -C target-cpu=x86-64-v2'
+
+  - <<: *darwin-amd64-build
+    id: darwin-amd64-v3
+    env:
+      - 'RUSTFLAGS={{ index .Env "RUSTFLAGS" }} -C target-cpu=x86-64-v3'
+
 source:
   enabled: false
 
 archives:
+  - &amd64-archive
+    id: amd64-v2
+    ids: [linux-windows-amd64-v2, darwin-amd64-v2]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_v2"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: ["LICENS[E]", "README.m[d]"]
+
+  - <<: *amd64-archive
+    id: amd64-v3
+    ids: [linux-windows-amd64-v3, darwin-amd64-v3]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_v3"
+
+  - id: arm
+    ids: [linux-arm, darwin-arm64]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ if eq .Arch \"arm\" }}armv{{ .Arm }}{{ else }}{{ .Arch }}{{ end }}"
+    files: ["LICENS[E]", "README.m[d]"]
+
+  - id: napi
+    meta: true
+    name_template: '{{ .ProjectName }}_{{ .Version }}_napi_{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}'
+    formats:
+      - tar.gz
+    files:
+      - src: 'target/napi/{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}/*.node'
+        dst: .
+        strip_parent: true
+      - src: crates/acta-napi/index.js
+        dst: .
+        strip_parent: true
+      - src: crates/acta-napi/index.d.ts
+        dst: .
+        strip_parent: true
+      - src: crates/acta-napi/package.json
+        dst: .
+        strip_parent: true
+      - LICENSE
+
+  - id: ffi
+    meta: true
+    name_template: '{{ .ProjectName }}_{{ .Version }}_ffi_{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}'
+    formats:
+      - tar.gz
+    files:
+      - src: target/x86_64-unknown-linux-gnu*/release/libacta_ffi.so
+        dst: x86_64-unknown-linux-gnu
+        strip_parent: true
+      - src: target/aarch64-unknown-linux-gnu*/release/libacta_ffi.so
+        dst: aarch64-unknown-linux-gnu
+        strip_parent: true
+      - src: target/x86_64-pc-windows-gnu*/release/acta_ffi.dll
+        dst: x86_64-pc-windows-gnu
+        strip_parent: true
+      - src: target/aarch64-pc-windows-gnullvm*/release/acta_ffi.dll
+        dst: aarch64-pc-windows-gnullvm
+        strip_parent: true
+      - src: target/x86_64-apple-darwin*/release/libacta_ffi.dylib
+        dst: x86_64-apple-darwin
+        strip_parent: true
+      - src: target/aarch64-apple-darwin*/release/libacta_ffi.dylib
+        dst: aarch64-apple-darwin
+        strip_parent: true
+      - src: crates/acta-ffi/include/acta_ffi.h
+        dst: .
+        strip_parent: true
+      - LICENSE
+
   - id: source
     meta: true
     formats:
@@ -143,6 +144,10 @@ archives:
     files:
       - src/**
       - crates/**
+      - bindings/bun/src/**
+      - bindings/bun/package.json
+      - bindings/bun/tsconfig.json
+      - bindings/bun/bun.lock
       - tests/**
       - benches/**
       - examples/**
@@ -153,85 +158,11 @@ archives:
       - README.md
       - LICENSE
 
-  - id: linux-amd64-v2
-    ids:
-      - acta-linux-amd64-v2
-    name_template: "{{ .ProjectName }}_{{ .Version }}_linux_amd64_v2"
-    formats:
-      - tar.gz
-    files: &common_archive_files
-      - LICENSE
-      - README.md
-
-  - id: linux-amd64-v3
-    ids:
-      - acta-linux-amd64-v3
-    name_template: "{{ .ProjectName }}_{{ .Version }}_linux_amd64_v3"
-    formats:
-      - tar.gz
-    files: *common_archive_files
-
-  - id: linux-arm64
-    ids:
-      - acta-linux-arm64
-    name_template: "{{ .ProjectName }}_{{ .Version }}_linux_arm64"
-    formats:
-      - tar.gz
-    files: *common_archive_files
-
-  - id: linux-armv7
-    ids:
-      - acta-linux-armv7
-    name_template: "{{ .ProjectName }}_{{ .Version }}_linux_armv7"
-    formats:
-      - tar.gz
-    files: *common_archive_files
-
-  - id: windows-amd64-v2
-    ids:
-      - acta-windows-amd64-v2
-    name_template: "{{ .ProjectName }}_{{ .Version }}_windows_amd64_v2"
-    formats:
-      - zip
-    files: *common_archive_files
-
-  - id: windows-amd64-v3
-    ids:
-      - acta-windows-amd64-v3
-    name_template: "{{ .ProjectName }}_{{ .Version }}_windows_amd64_v3"
-    formats:
-      - zip
-    files: *common_archive_files
-
-  - id: darwin-amd64-v2
-    ids:
-      - acta-darwin-amd64-v2
-    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_amd64_v2"
-    formats:
-      - tar.gz
-    files: *common_archive_files
-
-  - id: darwin-amd64-v3
-    ids:
-      - acta-darwin-amd64-v3
-    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_amd64_v3"
-    formats:
-      - tar.gz
-    files: *common_archive_files
-
-  - id: darwin-arm64
-    ids:
-      - acta-darwin-arm64
-    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_arm64"
-    formats:
-      - tar.gz
-    files: *common_archive_files
+snapshot:
+  version_template: "{{ .Version }}-next"
 
 checksum:
-  name_template: "checksums.txt"
-
-snapshot:
-  version_template: "{{ incpatch .Version }}-next"
+  disable: true
 
 changelog:
   disable: true

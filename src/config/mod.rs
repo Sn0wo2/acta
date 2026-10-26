@@ -18,6 +18,11 @@ pub enum ColorDepth {
     NoColor,
 }
 
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "lowercase")
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LevelAlignment {
@@ -54,6 +59,7 @@ macro_rules! level_labels {
     }};
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct LevelLabels {
@@ -108,6 +114,7 @@ impl Default for LevelLabels {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct Icons {
@@ -177,6 +184,11 @@ impl Default for Icons {
 
 type Rgb = (u8, u8, u8);
 
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
 #[derive(Clone, Copy, Debug)]
 #[allow(clippy::exhaustive_structs)]
 pub struct Theme {
@@ -191,28 +203,6 @@ pub struct Theme {
 }
 
 impl Theme {
-    #[allow(clippy::too_many_arguments)]
-    const fn from_palette(
-        accent: Rgb,
-        secondary: Rgb,
-        text: Rgb,
-        error: Rgb,
-        warn: Rgb,
-        info: Rgb,
-        debug: Rgb,
-        trace: Rgb,
-    ) -> Self {
-        Self {
-            accent,
-            secondary,
-            text,
-            error,
-            warn,
-            info,
-            debug,
-            trace,
-        }
-    }
     #[rustfmt::skip]
     pub const fn acta() -> Self {
         const LIGHT_BLUE:  Rgb = (91, 206, 250);  // #5BCEFA
@@ -221,7 +211,11 @@ impl Theme {
         const BRIGHT_RED:  Rgb = (255, 85, 85);   // #FF5555
         const GOLD:        Rgb = (255, 200, 60);  // #FFC83C
         const OFF_WHITE:   Rgb = (240, 240, 240); // #F0F0F0
-        Self::from_palette(LIGHT_BLUE, PINK, WHITE, BRIGHT_RED, GOLD, LIGHT_BLUE, PINK, OFF_WHITE)
+        Self {
+            accent: LIGHT_BLUE, secondary: PINK, text: WHITE,
+            error: BRIGHT_RED, warn: GOLD, info: LIGHT_BLUE,
+            debug: PINK, trace: OFF_WHITE,
+        }
     }
 
     #[rustfmt::skip]
@@ -232,7 +226,11 @@ impl Theme {
         const BRIGHT_RED: Rgb = (255, 85, 85);   // #FF5555
         const GOLD:       Rgb = (255, 200, 60);  // #FFC83C
         const GRAY:       Rgb = (180, 180, 180); // #B4B4B4
-        Self::from_palette(CYAN, PINK, WHITE, BRIGHT_RED, GOLD, CYAN, PINK, GRAY)
+        Self {
+            accent: CYAN, secondary: PINK, text: WHITE,
+            error: BRIGHT_RED, warn: GOLD, info: CYAN,
+            debug: PINK, trace: GRAY,
+        }
     }
 
     #[rustfmt::skip]
@@ -243,7 +241,11 @@ impl Theme {
         const BRIGHT_RED: Rgb = (255, 85, 85);   // #FF5555
         const GOLD:       Rgb = (255, 200, 60);  // #FFC83C
         const GRAY:       Rgb = (180, 180, 180); // #B4B4B4
-        Self::from_palette(CYAN, PINK, WHITE, BRIGHT_RED, GOLD, CYAN, PINK, GRAY)
+        Self {
+            accent: CYAN, secondary: PINK, text: WHITE,
+            error: BRIGHT_RED, warn: GOLD, info: CYAN,
+            debug: PINK, trace: GRAY,
+        }
     }
 
     #[rustfmt::skip]
@@ -254,7 +256,11 @@ impl Theme {
         const RED:    Rgb = (191, 97, 106);  // #BF616A
         const YELLOW: Rgb = (235, 203, 139); // #EBCB8B
         const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
-        Self::from_palette(BLUE, GREEN, WHITE, RED, YELLOW, BLUE, GREEN, GRAY)
+        Self {
+            accent: BLUE, secondary: GREEN, text: WHITE,
+            error: RED, warn: YELLOW, info: BLUE,
+            debug: GREEN, trace: GRAY,
+        }
     }
 
     #[rustfmt::skip]
@@ -265,7 +271,11 @@ impl Theme {
         const RED:    Rgb = (243, 139, 168); // #F38BA8
         const YELLOW: Rgb = (249, 226, 175); // #F9E2AF
         const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
-        Self::from_palette(BLUE, MAUVE, TEXT, RED, YELLOW, BLUE, MAUVE, GRAY)
+        Self {
+            accent: BLUE, secondary: MAUVE, text: TEXT,
+            error: RED, warn: YELLOW, info: BLUE,
+            debug: MAUVE, trace: GRAY,
+        }
     }
 
     #[rustfmt::skip]
@@ -276,7 +286,11 @@ impl Theme {
         const RED:    Rgb = (251, 73, 52);   // #FB4934
         const YELLOW: Rgb = (250, 189, 47);  // #FABD2F
         const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
-        Self::from_palette(AQUA, ORANGE, LIGHT, RED, YELLOW, AQUA, ORANGE, GRAY)
+        Self {
+            accent: AQUA, secondary: ORANGE, text: LIGHT,
+            error: RED, warn: YELLOW, info: AQUA,
+            debug: ORANGE, trace: GRAY,
+        }
     }
 
     #[rustfmt::skip]
@@ -287,7 +301,11 @@ impl Theme {
         const RED:    Rgb = (224, 108, 117); // #E06C75
         const YELLOW: Rgb = (229, 192, 123); // #E5C07B
         const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
-        Self::from_palette(BLUE, PURPLE, WHITE, RED, YELLOW, BLUE, PURPLE, GRAY)
+        Self {
+            accent: BLUE, secondary: PURPLE, text: WHITE,
+            error: RED, warn: YELLOW, info: BLUE,
+            debug: PURPLE, trace: GRAY,
+        }
     }
 
     #[rustfmt::skip]
@@ -298,7 +316,11 @@ impl Theme {
         const RED:    Rgb = (247, 118, 142); // #F7768E
         const YELLOW: Rgb = (224, 175, 104); // #E0AF68
         const GRAY:   Rgb = (180, 180, 180); // #B4B4B4
-        Self::from_palette(BLUE, PURPLE, WHITE, RED, YELLOW, BLUE, PURPLE, GRAY)
+        Self {
+            accent: BLUE, secondary: PURPLE, text: WHITE,
+            error: RED, warn: YELLOW, info: BLUE,
+            debug: PURPLE, trace: GRAY,
+        }
     }
 }
 
@@ -308,6 +330,7 @@ impl Default for Theme {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Clone, Copy, Debug)]
 #[allow(clippy::exhaustive_structs)]
 pub struct Style {
@@ -467,6 +490,7 @@ impl FileConfig {
 pub enum WriterTarget {
     Stdout,
     Stderr,
+    Buffered,
     #[cfg_attr(feature = "serde", serde(skip))]
     Custom(Arc<BoxMakeWriter>),
     #[cfg(feature = "file")]
@@ -631,6 +655,35 @@ pub struct Config {
 }
 
 impl Config {
+    #[must_use]
+    pub fn map_writers(mut self, map: impl FnMut(Writer) -> Writer) -> Self {
+        self.writers = self.writers.into_iter().map(map).collect();
+        self
+    }
+
+    #[cfg(feature = "serde")]
+    pub fn from_json_with_writer(
+        json: &str,
+        output: crate::BufferedWriter,
+    ) -> Result<Self, serde_json::Error> {
+        let json: serde_json::Value = serde_json::from_str(json)?;
+        let has_writers = json.get("writers").is_some();
+        let config: Self = serde_json::from_value(json)?;
+        let config = if has_writers {
+            config
+        } else {
+            config.map_writers(|writer| writer.with_target(WriterTarget::Buffered))
+        };
+
+        Ok(config.map_writers(|writer| {
+            if matches!(&writer.target, WriterTarget::Buffered) {
+                writer.with_target(WriterTarget::custom(output.clone()))
+            } else {
+                writer
+            }
+        }))
+    }
+
     pub const fn builder() -> ConfigBuilder {
         ConfigBuilder {
             filter: None,

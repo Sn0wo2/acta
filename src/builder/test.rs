@@ -15,6 +15,7 @@ fn set_filter_with_raw_directive_updates_guard() {
     ];
     let subscriber = Registry::default().with(layers).with(env_layer);
     let guard = TracingGuard {
+        dispatch: tracing::Dispatch::new(subscriber),
         raw,
         #[cfg(feature = "file")]
         worker_guards: Vec::new(),
@@ -24,7 +25,7 @@ fn set_filter_with_raw_directive_updates_guard() {
     guard
         .set_filter(EnvFilter::try_new("info,my_crate=debug").unwrap())
         .expect("set_filter with raw directive should succeed");
-    tracing::subscriber::with_default(subscriber, || {
+    tracing::dispatcher::with_default(&guard.dispatch, || {
         assert!(tracing::enabled!(tracing::Level::INFO));
         assert!(!tracing::enabled!(tracing::Level::TRACE));
     });

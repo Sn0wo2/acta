@@ -1,4 +1,3 @@
-#[cfg(any(not(acta_wasm_console), feature = "file"))]
 use std::io;
 #[cfg(feature = "file")]
 use std::path::{Path, PathBuf};
@@ -13,8 +12,10 @@ use tracing_appender::non_blocking::WorkerGuard;
 use crate::config::AsyncMode;
 use crate::config::WriterTarget;
 use crate::config::{ColorDepth, Config, Format};
+use crate::event::Event;
 use crate::fmt::CustomFormatter;
 use crate::fmt::stacktrace::Stacktrace;
+use crate::span::Spans;
 use crate::writer::SharedWriter;
 #[cfg(any(acta_wasm_console, acta_async))]
 use crate::writer::Stream;
@@ -36,6 +37,15 @@ type InnerSubscriber = Layered<Vec<BoxedLayer>, Registry>;
 type ReloadHandle = tracing_subscriber::reload::Handle<EnvFilter, InnerSubscriber>;
 
 pub fn init(config: Config) -> crate::Result<TracingGuard> {
+    let guard = build_dispatch(config)?;
+
+    tracing_log::LogTracer::init()?;
+    tracing::dispatcher::set_global_default(guard.dispatch.clone())?;
+
+    Ok(guard)
+}
+
+fn build_dispatch(config: Config) -> crate::Result<TracingGuard> {
     let Config { filter, writers } = config;
     let mut layers: Vec<BoxedLayer> = Vec::with_capacity(writers.len());
 
@@ -48,6 +58,13 @@ pub fn init(config: Config) -> crate::Result<TracingGuard> {
         let event_levels = writer.levels;
         let make_writer = SharedWriter(match &writer.target {
             WriterTarget::Custom(writer) => Arc::clone(writer),
+            WriterTarget::Buffered => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "buffered writer target was not resolved",
+                )
+                .into());
+            }
             #[cfg(not(acta_wasm_console))]
             WriterTarget::Stdout => Arc::new(BoxMakeWriter::new(io::stdout)),
             #[cfg(not(acta_wasm_console))]
@@ -197,6 +214,7 @@ pub fn init(config: Config) -> crate::Result<TracingGuard> {
                     writer.color_depth.unwrap_or_else(|| {
                         if let Some(level) = supports_color::on_cached(match &writer.target {
                             WriterTarget::Custom(_) => return ColorDepth::NoColor,
+                            WriterTarget::Buffered => return ColorDepth::NoColor,
                             WriterTarget::Stdout => supports_color::Stream::Stdout,
                             WriterTarget::Stderr => supports_color::Stream::Stderr,
                             #[cfg(feature = "file")]
@@ -299,13 +317,10 @@ pub fn init(config: Config) -> crate::Result<TracingGuard> {
     }
     let (env_filter_layer, raw) = tracing_subscriber::reload::Layer::new(filter);
 
-    tracing_log::LogTracer::init()?;
-
-    tracing::subscriber::set_global_default(
-        Registry::default().with(layers).with(env_filter_layer),
-    )?;
+    let dispatch = tracing::Dispatch::new(Registry::default().with(layers).with(env_filter_layer));
 
     Ok(TracingGuard {
+        dispatch,
         raw,
         #[cfg(feature = "file")]
         worker_guards,
@@ -337,6 +352,7 @@ fn reserve_archive(base: &Path, extension: &str) -> io::Result<(PathBuf, std::fs
 
 #[must_use = "dropping TracingGuard will release associated resources"]
 pub struct TracingGuard {
+    dispatch: tracing::Dispatch,
     raw: ReloadHandle,
     #[cfg(feature = "file")]
     worker_guards: Vec<WorkerGuard>,
@@ -366,6 +382,85 @@ impl TracingGuard {
     pub fn set_filter(&self, filter: EnvFilter) -> crate::Result<()> {
         self.raw.reload(filter)?;
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "dropping Logger will release associated resources"]
+pub struct Logger {
+    guard: TracingGuard,
+    spans: Spans,
+}
+
+impl Logger {
+    pub fn new(config: Config) -> crate::Result<Self> {
+        Ok(Self {
+            guard: build_dispatch(config)?,
+            spans: Spans::default(),
+        })
+    }
+
+    pub fn log(&self, level: tracing::Level, message: &str) {
+        tracing::dispatcher::with_default(&self.guard.dispatch, || match level {
+            tracing::Level::ERROR => {
+                tracing::event!(target: "acta", tracing::Level::ERROR, "{}", message);
+            }
+            tracing::Level::WARN => {
+                tracing::event!(target: "acta", tracing::Level::WARN, "{}", message);
+            }
+            tracing::Level::INFO => {
+                tracing::event!(target: "acta", tracing::Level::INFO, "{}", message);
+            }
+            tracing::Level::DEBUG => {
+                tracing::event!(target: "acta", tracing::Level::DEBUG, "{}", message);
+            }
+            tracing::Level::TRACE => {
+                tracing::event!(target: "acta", tracing::Level::TRACE, "{}", message);
+            }
+        });
+    }
+
+    pub fn event(&self, event: &Event) -> crate::Result<()> {
+        let parent = event
+            .parent
+            .map(|id| self.spans.get(id))
+            .transpose()
+            .map_err(crate::ActaError::Span)?;
+        crate::event::emit(&self.guard.dispatch, event, parent.as_ref())
+    }
+
+    pub fn create_span(&self, event: &Event) -> crate::Result<u32> {
+        let parent = event
+            .parent
+            .map(|id| self.spans.get(id))
+            .transpose()
+            .map_err(crate::ActaError::Span)?;
+        let field_names = crate::event::field_names(event)?;
+        let metadata =
+            crate::event::schema_for(event, &field_names, tracing::metadata::Kind::SPAN)?;
+        let span = tracing::dispatcher::with_default(&self.guard.dispatch, || {
+            crate::span::Span::new(&self.guard.dispatch, metadata, event, parent.as_ref())
+        });
+        self.spans.insert(span).map_err(crate::ActaError::Span)
+    }
+
+    pub fn record_span(
+        &self,
+        id: u32,
+        fields: &serde_json::Map<String, serde_json::Value>,
+    ) -> crate::Result<()> {
+        self.spans
+            .get(id)
+            .and_then(|span| span.record(fields))
+            .map_err(crate::ActaError::Span)
+    }
+
+    pub fn close_span(&self, id: u32) -> crate::Result<()> {
+        self.spans.close(id).map_err(crate::ActaError::Span)
+    }
+
+    pub fn set_filter(&self, filter: EnvFilter) -> crate::Result<()> {
+        self.guard.set_filter(filter)
     }
 }
 

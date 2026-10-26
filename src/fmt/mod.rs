@@ -1,6 +1,6 @@
-use crate::config::ColorDepth;
-use crate::config::Style;
-use crate::config::Theme;
+#[cfg(feature = "serde")]
+use crate::config::LevelAlignment;
+use crate::config::{ColorDepth, Icons, LevelLabels, Style, Theme};
 use chrono::Local;
 use chrono::format::Item;
 use chrono::format::StrftimeItems;
@@ -42,6 +42,8 @@ const DEFAULT_PATH_WIDTH: usize = include!(concat!(env!("OUT_DIR"), "/path_width
 #[non_exhaustive]
 pub struct Formatter {
     style: Style,
+    #[cfg(feature = "serde")]
+    serde_style: Option<SerdeStyle>,
     color_depth: ColorDepth,
     colors: [owo_colors::DynColors; 14],
     time_items: Vec<Item<'static>>,
@@ -63,6 +65,8 @@ impl Formatter {
     pub fn new() -> Self {
         let mut formatter = Self {
             style: Style::default(),
+            #[cfg(feature = "serde")]
+            serde_style: None,
             color_depth: ColorDepth::TrueColor,
             colors: [owo_colors::DynColors::Ansi(owo_colors::AnsiColors::Default); 14],
             time_items: StrftimeItems::new("%H:%M:%S").map(Item::to_owned).collect(),
@@ -79,6 +83,10 @@ impl Formatter {
     #[must_use]
     pub fn with_style(mut self, style: Style) -> Self {
         self.style = style;
+        #[cfg(feature = "serde")]
+        {
+            self.serde_style = None;
+        }
         self.update_colors();
         self
     }
@@ -181,6 +189,234 @@ impl Formatter {
     }
 }
 
+#[derive(Clone, Copy)]
+struct IconView<'a> {
+    name: &'a str,
+    bracket_open: &'a str,
+    bracket_close: &'a str,
+    time_bracket_open: &'a str,
+    time_bracket_close: &'a str,
+    separator: &'a str,
+    arrow: &'a str,
+    span_join: &'a str,
+}
+
+impl<'a> From<&'a Icons> for IconView<'a> {
+    fn from(icons: &'a Icons) -> Self {
+        Self {
+            name: icons.name,
+            bracket_open: icons.bracket_open,
+            bracket_close: icons.bracket_close,
+            time_bracket_open: icons.time_bracket_open,
+            time_bracket_close: icons.time_bracket_close,
+            separator: icons.separator,
+            arrow: icons.arrow,
+            span_join: icons.span_join,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LabelView<'a> {
+    error: &'a str,
+    warn: &'a str,
+    info: &'a str,
+    debug: &'a str,
+    trace: &'a str,
+}
+
+impl<'a> From<&'a LevelLabels> for LabelView<'a> {
+    fn from(labels: &'a LevelLabels) -> Self {
+        Self {
+            error: labels.error,
+            warn: labels.warn,
+            info: labels.info,
+            debug: labels.debug,
+            trace: labels.trace,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct SerdeStyle {
+    theme: Theme,
+    icons: SerdeIcons,
+    labels: SerdeLabels,
+}
+
+#[cfg(feature = "serde")]
+impl Default for SerdeStyle {
+    fn default() -> Self {
+        let style = Style::default();
+        Self {
+            theme: style.theme,
+            icons: SerdeIcons::from(&style.icons),
+            labels: SerdeLabels::from(&style.labels),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct SerdeIcons {
+    name: String,
+    bracket_open: String,
+    bracket_close: String,
+    time_bracket_open: String,
+    time_bracket_close: String,
+    separator: String,
+    arrow: String,
+    span_join: String,
+}
+
+#[cfg(feature = "serde")]
+impl Default for SerdeIcons {
+    fn default() -> Self {
+        Self::from(&Icons::default())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> From<&'a Icons> for SerdeIcons {
+    fn from(icons: &'a Icons) -> Self {
+        Self {
+            name: icons.name.to_owned(),
+            bracket_open: icons.bracket_open.to_owned(),
+            bracket_close: icons.bracket_close.to_owned(),
+            time_bracket_open: icons.time_bracket_open.to_owned(),
+            time_bracket_close: icons.time_bracket_close.to_owned(),
+            separator: icons.separator.to_owned(),
+            arrow: icons.arrow.to_owned(),
+            span_join: icons.span_join.to_owned(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> From<&'a SerdeIcons> for IconView<'a> {
+    fn from(icons: &'a SerdeIcons) -> Self {
+        Self {
+            name: &icons.name,
+            bracket_open: &icons.bracket_open,
+            bracket_close: &icons.bracket_close,
+            time_bracket_open: &icons.time_bracket_open,
+            time_bracket_close: &icons.time_bracket_close,
+            separator: &icons.separator,
+            arrow: &icons.arrow,
+            span_join: &icons.span_join,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct SerdeLabels {
+    error: String,
+    warn: String,
+    info: String,
+    debug: String,
+    trace: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alignment: Option<LevelAlignment>,
+    #[serde(skip)]
+    aligned: Option<AlignedLabels>,
+}
+
+#[cfg(feature = "serde")]
+impl Default for SerdeLabels {
+    fn default() -> Self {
+        Self::from(&LevelLabels::LONG)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> From<&'a LevelLabels> for SerdeLabels {
+    fn from(labels: &'a LevelLabels) -> Self {
+        Self {
+            error: labels.error.to_owned(),
+            warn: labels.warn.to_owned(),
+            info: labels.info.to_owned(),
+            debug: labels.debug.to_owned(),
+            trace: labels.trace.to_owned(),
+            alignment: None,
+            aligned: None,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> From<&'a SerdeLabels> for LabelView<'a> {
+    fn from(labels: &'a SerdeLabels) -> Self {
+        Self {
+            error: &labels.error,
+            warn: &labels.warn,
+            info: &labels.info,
+            debug: &labels.debug,
+            trace: &labels.trace,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(Clone, Debug)]
+struct AlignedLabels {
+    error: String,
+    warn: String,
+    info: String,
+    debug: String,
+    trace: String,
+}
+
+#[cfg(feature = "serde")]
+impl SerdeLabels {
+    fn align(&mut self) {
+        let Some(alignment) = self.alignment else {
+            return;
+        };
+        let labels = [
+            self.error.trim_ascii(),
+            self.warn.trim_ascii(),
+            self.info.trim_ascii(),
+            self.debug.trim_ascii(),
+            self.trace.trim_ascii(),
+        ];
+        let width = labels
+            .iter()
+            .map(|label| UnicodeWidthStr::width(*label))
+            .max()
+            .unwrap_or(0);
+        self.aligned = Some(AlignedLabels {
+            error: aligned_label(labels[0], width, alignment),
+            warn: aligned_label(labels[1], width, alignment),
+            info: aligned_label(labels[2], width, alignment),
+            debug: aligned_label(labels[3], width, alignment),
+            trace: aligned_label(labels[4], width, alignment),
+        });
+    }
+}
+
+#[cfg(feature = "serde")]
+fn aligned_label(label: &str, width: usize, alignment: LevelAlignment) -> String {
+    let padding = width.saturating_sub(UnicodeWidthStr::width(label));
+    let spaces = " ".repeat(padding);
+    let mut aligned = String::with_capacity(label.len() + padding);
+    match alignment {
+        LevelAlignment::Left => {
+            aligned.push_str(label);
+            aligned.push_str(&spaces);
+        }
+        LevelAlignment::Right => {
+            aligned.push_str(&spaces);
+            aligned.push_str(label);
+        }
+    }
+    aligned
+}
+
 #[cfg(feature = "serde")]
 impl serde::Serialize for Formatter {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -189,12 +425,17 @@ impl serde::Serialize for Formatter {
     {
         use serde::ser::SerializeStruct;
 
-        let mut state = serializer.serialize_struct("Formatter", 5)?;
+        let mut state = serializer.serialize_struct("Formatter", 6)?;
         state.serialize_field("time_format", &self.time_format)?;
         state.serialize_field("path_width", &self.path_width)?;
         state.serialize_field("show_path", &self.show_path)?;
         state.serialize_field("show_spans", &self.show_spans)?;
         state.serialize_field("color_depth", &self.color_depth)?;
+        if let Some(style) = &self.serde_style {
+            state.serialize_field("style", style)?;
+        } else {
+            state.serialize_field("style", &self.style)?;
+        }
         state.end()
     }
 }
@@ -212,6 +453,7 @@ impl<'de> serde::Deserialize<'de> for Formatter {
             show_path: Option<bool>,
             show_spans: Option<bool>,
             color_depth: Option<ColorDepth>,
+            style: Option<SerdeStyle>,
         }
 
         let fields = Fields::deserialize(deserializer)?;
@@ -230,6 +472,12 @@ impl<'de> serde::Deserialize<'de> for Formatter {
         }
         if let Some(show_spans) = fields.show_spans {
             formatter.show_spans = show_spans;
+        }
+        if let Some(mut style) = fields.style {
+            style.labels.align();
+            formatter.style.theme = style.theme;
+            formatter.serde_style = Some(style);
+            formatter.update_colors();
         }
         if let Some(color_depth) = fields.color_depth {
             formatter.color_depth = color_depth;
@@ -250,7 +498,31 @@ where
         mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> fmt::Result {
-        let icons = &self.style.icons;
+        #[cfg(feature = "serde")]
+        let icons = self.serde_style.as_ref().map_or_else(
+            || IconView::from(&self.style.icons),
+            |style| IconView::from(&style.icons),
+        );
+        #[cfg(not(feature = "serde"))]
+        let icons = IconView::from(&self.style.icons);
+        #[cfg(feature = "serde")]
+        let labels = self.serde_style.as_ref().map_or_else(
+            || LabelView::from(&self.style.labels),
+            |style| {
+                style.labels.aligned.as_ref().map_or_else(
+                    || LabelView::from(&style.labels),
+                    |aligned| LabelView {
+                        error: &aligned.error,
+                        warn: &aligned.warn,
+                        info: &aligned.info,
+                        debug: &aligned.debug,
+                        trace: &aligned.trace,
+                    },
+                )
+            },
+        );
+        #[cfg(not(feature = "serde"))]
+        let labels = LabelView::from(&self.style.labels);
         let [
             accent,
             text,
@@ -274,11 +546,11 @@ where
         let icon_space = if nerd { " " } else { "" };
 
         let (level_color, bg, level_label) = match *event.metadata().level() {
-            Level::ERROR => (error, error_bg, self.style.labels.error),
-            Level::WARN => (warn, warn_bg, self.style.labels.warn),
-            Level::INFO => (info, info_bg, self.style.labels.info),
-            Level::DEBUG => (debug, debug_bg, self.style.labels.debug),
-            Level::TRACE => (trace, trace_bg, self.style.labels.trace),
+            Level::ERROR => (error, error_bg, labels.error),
+            Level::WARN => (warn, warn_bg, labels.warn),
+            Level::INFO => (info, info_bg, labels.info),
+            Level::DEBUG => (debug, debug_bg, labels.debug),
+            Level::TRACE => (trace, trace_bg, labels.trace),
         };
         let [accent, text, secondary] = [accent, text, secondary].map(|color| {
             if ansi {
