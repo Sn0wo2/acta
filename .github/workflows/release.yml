@@ -248,6 +248,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.tag.outputs.sha || needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
       - uses: actions/download-artifact@v8
         if: needs.prepare.outputs.has_binaries == 'true'
         with:
@@ -264,23 +270,9 @@ jobs:
           ((${#files[@]}))
           sha256sum -- "${files[@]}" > checksums.txt
 
-      - uses: softprops/action-gh-release@v3
-        id: release
+      - uses: goreleaser/goreleaser-action@v7
         with:
-          tag_name: v${{ needs.prepare.outputs.version }}
-          draft: true
-          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
-          generate_release_notes: true
-          files: dist/*
-          fail_on_unmatched_files: ${{ needs.prepare.outputs.has_binaries == 'true' }}
-
-      - uses: actions/github-script@v9
+          args: release --skip=before,archive,validate
         env:
-          RELEASE_ID: ${{ steps.release.outputs.id }}
-        with:
-          script: |
-            await github.rest.repos.updateRelease({
-              ...context.repo,
-              release_id: Number(process.env.RELEASE_ID),
-              draft: false,
-            })
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_PLATFORM: release
