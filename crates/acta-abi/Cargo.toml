@@ -1,0 +1,19 @@
+[package]
+name = "acta-abi"
+version.workspace = true
+rust-version.workspace = true
+edition = "2024"
+description = "Shared implementation for the acta FFI, N-API and WebAssembly bindings"
+repository = "https://github.com/Sn0wo2/acta"
+license = "Apache-2.0"
+
+[dependencies]
+acta = { path = "../..", version = "0.6.0", default-features = false, features = [
+    "serde",
+] }
+serde = "1"
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "env-filter",
+] }

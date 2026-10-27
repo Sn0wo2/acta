@@ -19,6 +19,7 @@ rust-version = "1.88"
 
 [workspace.dependencies]
 acta-build = { path = "crates/acta-build", version = "0.6.0" }
+acta-abi = { path = "crates/acta-abi", version = "0.6.0" }
 
 [features]
 default = ["file"]
