@@ -84,6 +84,15 @@ jobs:
       - name: Ensure build script is executable
         run: chmod +x scripts/cargo-or-zigbuild.js
 
+      - name: Build snapshot archives with debug-grade optimization
+        if: ${{ inputs.snapshot }}
+        run: |
+          {
+            echo "CARGO_PROFILE_RELEASE_OPT_LEVEL=0"
+            echo "CARGO_PROFILE_RELEASE_LTO=false"
+            echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16"
+          } >> "$GITHUB_ENV"
+
       - name: Build and package archives
         uses: goreleaser/goreleaser-action@v7
         with:
