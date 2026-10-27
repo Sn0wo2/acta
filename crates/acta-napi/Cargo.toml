@@ -12,8 +12,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 acta = { path = "../..", version = "0.6.0", default-features = false, features = ["serde", "file", "compress", "native-async"] }
+acta-abi = { workspace = true }
 serde_json = "1"
-tracing = "0.1"
 napi = { version = "2.16.17", default-features = false, features = ["napi8", "dyn-symbols", "serde-json"] }
 napi-derive = { version = "2.16.13", features = ["type-def"] }
 

@@ -310,6 +310,8 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { Logger } = nativeBinding
+const { Logger, abiVersion, version } = nativeBinding
 
 module.exports.Logger = Logger
+module.exports.abiVersion = abiVersion
+module.exports.version = version
