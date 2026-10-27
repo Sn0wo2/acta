@@ -381,6 +381,14 @@ impl TracingGuard {
 
     pub fn set_filter(&self, filter: EnvFilter) -> crate::Result<()> {
         self.raw.reload(filter)?;
+        // Reload rebuilds the interest cache against the global default
+        // dispatcher, which is `NoSubscriber` (returns `Interest::never()`)
+        // unless `init` was called — silently muting every callsite. Recompute
+        // inside our own dispatch so callsites register against the real
+        // subscriber instead.
+        tracing::dispatcher::with_default(&self.dispatch, || {
+            tracing::callsite::rebuild_interest_cache();
+        });
         Ok(())
     }
 }
