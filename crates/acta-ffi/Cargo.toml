@@ -3,6 +3,8 @@ name = "acta-ffi"
 version.workspace = true
 rust-version.workspace = true
 edition = "2024"
+description = "C foreign function interface for acta"
+repository = "https://github.com/Sn0wo2/acta"
 license = "Apache-2.0"
 
 [lib]
