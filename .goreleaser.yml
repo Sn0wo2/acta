@@ -64,9 +64,6 @@ builds:
     env:
       - 'RUSTFLAGS={{ index .Env "RUSTFLAGS" }} -C target-cpu=x86-64-v3'
 
-source:
-  enabled: false
-
 archives:
   - &amd64-archive
     id: amd64-v2
@@ -89,7 +86,7 @@ archives:
 
   - id: napi
     meta: true
-    name_template: '{{ .ProjectName }}_{{ .Version }}_napi_{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}'
+    name_template: '{{ .ProjectName }}_napi_{{ .Version }}_{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}'
     formats:
       - tar.gz
     files:
@@ -109,7 +106,7 @@ archives:
 
   - id: ffi
     meta: true
-    name_template: '{{ .ProjectName }}_{{ .Version }}_ffi_{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}'
+    name_template: '{{ .ProjectName }}_ffi_{{ .Version }}_{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}'
     formats:
       - tar.gz
     files:
@@ -134,28 +131,6 @@ archives:
       - src: crates/acta-ffi/include/acta_ffi.h
         dst: .
         strip_parent: true
-      - LICENSE
-
-  - id: source
-    meta: true
-    formats:
-      - tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}_source"
-    files:
-      - src/**
-      - crates/**
-      - bindings/bun/src/**
-      - bindings/bun/package.json
-      - bindings/bun/tsconfig.json
-      - bindings/bun/bun.lock
-      - tests/**
-      - benches/**
-      - examples/**
-      - .cargo/**
-      - build.rs
-      - Cargo.toml
-      - Cargo.lock
-      - README.md
       - LICENSE
 
 snapshot:
