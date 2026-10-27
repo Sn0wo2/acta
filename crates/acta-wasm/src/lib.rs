@@ -1,17 +1,12 @@
 #![deny(unsafe_code)]
 
 #[cfg(target_arch = "wasm32")]
-use acta::Logger as NativeLogger;
-#[cfg(target_arch = "wasm32")]
-use tracing::Level;
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub struct Logger {
-    inner: Option<NativeLogger>,
-    output: acta::BufferedWriter,
+    inner: Option<acta_abi::Logger>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -19,86 +14,47 @@ pub struct Logger {
 impl Logger {
     #[wasm_bindgen(constructor)]
     pub fn new(config_json: &str, capacity: u32) -> Result<Logger, JsValue> {
-        let output = acta::BufferedWriter::new(capacity as usize);
-        let config = acta::Config::from_json_with_writer(config_json, output.clone())
-            .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        let inner =
-            NativeLogger::new(config).map_err(|error| JsValue::from_str(&error.to_string()))?;
-        Ok(Self {
-            inner: Some(inner),
-            output,
-        })
+        acta_abi::Logger::from_config_json(config_json, capacity as usize)
+            .map(|logger| Self {
+                inner: Some(logger),
+            })
+            .map_err(js_error)
     }
 
     pub fn log(&self, level: u32, message: &str) -> Result<(), JsValue> {
-        let level = match level {
-            0 => Level::ERROR,
-            1 => Level::WARN,
-            2 => Level::INFO,
-            3 => Level::DEBUG,
-            4 => Level::TRACE,
-            _ => return Err(JsValue::from_str(&format!("invalid log level: {level}"))),
-        };
-        self.logger()?.log(level, message);
-        Ok(())
+        self.with(|logger| logger.log(level, message))
     }
 
     pub fn drain(&self, max_bytes: u32) -> Result<Vec<u8>, JsValue> {
-        self.logger()?;
-        Ok(self.output.drain(max_bytes as usize))
+        self.with(|logger| Ok(logger.drain(max_bytes as usize)))
     }
 
     pub fn event(&self, event_json: &str) -> Result<(), JsValue> {
-        let logger = self.logger()?;
-        let event = serde_json::from_str(event_json)
-            .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        logger
-            .event(&event)
-            .map_err(|error| JsValue::from_str(&error.to_string()))
+        self.with(|logger| logger.event_json(event_json))
     }
 
     #[wasm_bindgen(js_name = createSpan)]
     pub fn create_span(&self, event_json: &str) -> Result<u32, JsValue> {
-        let logger = self.logger()?;
-        let event = serde_json::from_str(event_json)
-            .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        logger
-            .create_span(&event)
-            .map_err(|error| JsValue::from_str(&error.to_string()))
+        self.with(|logger| logger.create_span_json(event_json))
     }
 
     #[wasm_bindgen(js_name = recordSpan)]
     pub fn record_span(&self, id: u32, fields_json: &str) -> Result<(), JsValue> {
-        let logger = self.logger()?;
-        let fields =
-            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(fields_json)
-                .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        logger
-            .record_span(id, &fields)
-            .map_err(|error| JsValue::from_str(&error.to_string()))
+        self.with(|logger| logger.record_span_json(id, fields_json))
     }
 
     #[wasm_bindgen(js_name = closeSpan)]
     pub fn close_span(&self, id: u32) -> Result<(), JsValue> {
-        self.logger()?
-            .close_span(id)
-            .map_err(|error| JsValue::from_str(&error.to_string()))
+        self.with(|logger| logger.close_span(id))
     }
 
     pub fn dropped(&self) -> Result<u64, JsValue> {
-        self.logger()?;
-        Ok(self.output.dropped())
+        self.with(|logger| Ok(logger.dropped()))
     }
 
     #[wasm_bindgen(js_name = setFilter)]
     pub fn set_filter(&self, filter: &str) -> Result<(), JsValue> {
-        self.logger()?
-            .set_filter(
-                filter
-                    .parse()
-                    .map_err(|_| JsValue::from_str("invalid filter"))?,
-            )
-            .map_err(|error| JsValue::from_str(&error.to_string()))
+        self.with(|logger| logger.set_filter(filter))
     }
 
     pub fn close(&mut self) {
@@ -107,10 +63,32 @@ impl Logger {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = abiVersion)]
+pub fn abi_version() -> u32 {
+    acta_abi::ABI_VERSION
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn version() -> String {
+    acta_abi::VERSION.to_owned()
+}
+
+#[cfg(target_arch = "wasm32")]
 impl Logger {
-    fn logger(&self) -> Result<&NativeLogger, JsValue> {
-        self.inner
+    fn with<T>(
+        &self,
+        operation: impl FnOnce(&acta_abi::Logger) -> acta_abi::Result<T>,
+    ) -> Result<T, JsValue> {
+        let logger = self
+            .inner
             .as_ref()
-            .ok_or_else(|| JsValue::from_str("Logger is closed"))
+            .ok_or_else(|| JsValue::from_str("Logger is closed"))?;
+        operation(logger).map_err(js_error)
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn js_error(error: acta_abi::Error) -> JsValue {
+    JsValue::from_str(&error.to_string())
 }
