@@ -33,14 +33,14 @@ export interface Event {
 export class ActaFfiError extends Error {
   constructor(
     readonly status: number,
-    operation: string,
+    message: string,
   ) {
-    super(`${operation} failed with acta-ffi status ${status}`);
+    super(message);
     this.name = "ActaFfiError";
   }
 }
 
-const ABI_VERSION = 1;
+export const ABI_VERSION = 2;
 const DEFAULT_CAPACITY = 64 * 1024;
 const DEFAULT_DRAIN_SIZE = 64 * 1024;
 const encoder = new TextEncoder();
@@ -109,16 +109,11 @@ function bytePointer(bytes: Uint8Array): number | null {
   return bytes.byteLength === 0 ? null : ptr(bytes);
 }
 
-function checkStatus(status: number, operation: string): void {
-  if (status !== 0) {
-    const description = statusNames[status];
-    throw new ActaFfiError(status, description ? `${operation} (${description})` : operation);
-  }
-}
-
 function openLibrary(libraryPath: string) {
   return dlopen(libraryPath, {
     acta_abi_version: { args: [], returns: "u32" },
+    acta_version: { args: [], returns: "cstring" },
+    acta_last_error: { args: [], returns: "cstring" },
     acta_logger_create: {
       args: ["ptr", "usize", "usize", "ptr"],
       returns: "i32",
@@ -141,10 +136,9 @@ function openLibrary(libraryPath: string) {
     },
     acta_logger_close_span: { args: ["u64", "u32"], returns: "i32" },
     acta_logger_drain: {
-      args: ["u64", "ptr", "usize", "usize", "ptr"],
+      args: ["u64", "ptr", "usize", "ptr", "ptr"],
       returns: "i32",
     },
-    acta_logger_dropped: { args: ["u64", "ptr"], returns: "i32" },
     acta_logger_set_filter: {
       args: ["u64", "ptr", "usize"],
       returns: "i32",
@@ -154,6 +148,36 @@ function openLibrary(libraryPath: string) {
 }
 
 type NativeLibrary = ReturnType<typeof openLibrary>;
+
+/** Loads the library and returns the ABI version it implements. */
+export function abiVersion(libraryPath: string): number {
+  const library = openLibrary(libraryPath);
+  try {
+    return library.symbols.acta_abi_version();
+  } finally {
+    library.close();
+  }
+}
+
+/** Loads the library and returns the acta version string. */
+export function version(libraryPath: string): string {
+  const library = openLibrary(libraryPath);
+  try {
+    return library.symbols.acta_version() ?? "";
+  } finally {
+    library.close();
+  }
+}
+
+function checkStatus(status: number, operation: string, library: NativeLibrary): void {
+  if (status === 0) return;
+  const description = statusNames[status] ?? `unknown status ${status}`;
+  const detail = library.symbols.acta_last_error();
+  throw new ActaFfiError(
+    status,
+    detail ? `${operation} failed (${description}): ${detail}` : `${operation} failed (${description})`,
+  );
+}
 
 export class Logger {
   #library: NativeLibrary | null;
@@ -165,9 +189,9 @@ export class Logger {
   constructor(options: LoggerOptions) {
     const library = openLibrary(options.libraryPath);
     try {
-      const version = library.symbols.acta_abi_version();
-      if (version !== ABI_VERSION) {
-        throw new Error(`Unsupported acta-ffi ABI version ${version}; expected ${ABI_VERSION}`);
+      const abi = library.symbols.acta_abi_version();
+      if (abi !== ABI_VERSION) {
+        throw new Error(`Unsupported acta-ffi ABI version ${abi}; expected ${ABI_VERSION}`);
       }
 
       const input = options.config ?? "{}";
@@ -182,6 +206,7 @@ export class Logger {
           ptr(outHandle),
         ),
         "logger create",
+        library,
       );
       if (outHandle[0] === 0n) {
         throw new Error("acta-ffi returned an invalid zero logger handle");
@@ -197,13 +222,11 @@ export class Logger {
 
   log(level: LogLevel, message: string | Uint8Array): void {
     const { library, handle } = this.#state();
-    if (!Number.isInteger(level) || level < LogLevel.Error || level > LogLevel.Trace) {
-      throw new RangeError("level must be a valid LogLevel");
-    }
     const bytes = bytesFor(message);
     checkStatus(
       library.symbols.acta_logger_log(handle, level, bytePointer(bytes), bytes.byteLength),
       "logger log",
+      library,
     );
   }
 
@@ -213,6 +236,7 @@ export class Logger {
     checkStatus(
       library.symbols.acta_logger_event(handle, bytePointer(bytes), bytes.byteLength),
       "logger event",
+      library,
     );
   }
 
@@ -228,6 +252,7 @@ export class Logger {
         ptr(outId),
       ),
       "logger create span",
+      library,
     );
     return outId[0]!;
   }
@@ -243,6 +268,7 @@ export class Logger {
         bytes.byteLength,
       ),
       "logger record span",
+      library,
     );
   }
 
@@ -251,6 +277,7 @@ export class Logger {
     checkStatus(
       library.symbols.acta_logger_close_span(handle, checkedUint32(id, "id")),
       "logger close span",
+      library,
     );
   }
 
@@ -296,10 +323,12 @@ export class Logger {
 
   dropped(): bigint {
     const { library, handle } = this.#state();
+    const outWritten = nativeSizeOutput();
     const outDropped = new BigUint64Array(1);
     checkStatus(
-      library.symbols.acta_logger_dropped(handle, ptr(outDropped)),
+      library.symbols.acta_logger_drain(handle, null, 0, ptr(outWritten), ptr(outDropped)),
       "logger dropped",
+      library,
     );
     return outDropped[0]!;
   }
@@ -321,6 +350,7 @@ export class Logger {
     checkStatus(
       library.symbols.acta_logger_set_filter(handle, bytePointer(bytes), bytes.byteLength),
       "logger set filter",
+      library,
     );
   }
 
@@ -335,7 +365,7 @@ export class Logger {
       throw new Error("Cannot close Logger while drained bytes remain pending");
     }
 
-    checkStatus(library.symbols.acta_logger_destroy(handle), "logger destroy");
+    checkStatus(library.symbols.acta_logger_destroy(handle), "logger destroy", library);
     this.#library = null;
     this.#handle = null;
     library.close();
@@ -373,15 +403,17 @@ export class Logger {
 
     const output = combined.subarray(existingBytes);
     const outWritten = nativeSizeOutput();
+    const outDropped = new BigUint64Array(1);
     checkStatus(
       library.symbols.acta_logger_drain(
         handle,
         ptr(output),
         output.byteLength,
-        additionalCapacity,
         ptr(outWritten),
+        ptr(outDropped),
       ),
       "logger drain",
+      library,
     );
     const written = readNativeSize(outWritten);
     if (written > output.byteLength) {
