@@ -261,3 +261,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BUILD_PLATFORM: release
+
+      - name: Refresh Caelum native artifacts
+        env:
+          GH_TOKEN: ${{ secrets.CAELUM_WORKFLOW_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: gh workflow run native.yml --repo Sn0wo2/caelum --field "tag=v$VERSION"

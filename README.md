@@ -180,6 +180,10 @@ fn main() -> acta::Result<()> {
 }
 ```
 
+### Go
+
+[`caelum`](https://github.com/Sn0wo2/caelum)
+
 ### C and C++
 
 Build with `cargo build -p acta-ffi --release`; the header is generated at
@@ -293,4 +297,3 @@ Async targets use `WriterTarget::AsyncStdout` or `AsyncStderr` with
 `AsyncMode::Custom { buffer_size: 4096 }` or `AsyncMode::Native`.
 Tokio console writers drain on `guard.flush()`; native and file writers flush
 when the guard is dropped.
-
