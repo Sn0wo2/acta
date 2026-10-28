@@ -11,6 +11,6 @@ license = "Apache-2.0"
 crate-type = ["cdylib", "rlib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-acta = { path = "../..", version = "0.6.0", default-features = false, features = ["serde", "wasm-console"] }
+acta = { workspace = true, features = ["serde", "wasm-console", "nerd"] }
 acta-abi = { workspace = true }
 wasm-bindgen = "0.2"

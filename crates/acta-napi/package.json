@@ -1,6 +1,6 @@
 {
   "name": "acta-napi",
-  "version": "0.5.3",
+  "version": "0.8.0",
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {

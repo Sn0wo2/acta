@@ -14,5 +14,5 @@ crate-type = ["cdylib", "staticlib"]
 cbindgen = "0.29"
 
 [dependencies]
-acta = { path = "../..", version = "0.6.0", default-features = false, features = ["serde", "file", "compress", "native-async"] }
+acta = { workspace = true, features = ["serde", "file", "compress", "async", "nerd"] }
 acta-abi = { workspace = true }
