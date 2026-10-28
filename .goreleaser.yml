@@ -6,6 +6,7 @@ env:
 
 before:
   hooks:
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo build --locked --release -p acta-wasm --target wasm32-unknown-unknown && mkdir -p dist && cp target/wasm32-unknown-unknown/release/acta_wasm.wasm dist/acta_wasm.wasm{{ else }}echo Skipping WebAssembly{{ end }}'
     - bun install --cwd crates/acta-napi --frozen-lockfile && bun run --cwd crates/acta-napi build:release
     - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target x86_64-unknown-linux-gnu.2.17{{ else }}echo Skipping Linux amd64 bindings{{ end }}'
     - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target aarch64-unknown-linux-gnu.2.17{{ else }}echo Skipping Linux arm64 bindings{{ end }}'
@@ -113,19 +114,37 @@ archives:
       - src: target/x86_64-unknown-linux-gnu*/release/libacta_ffi.so
         dst: x86_64-unknown-linux-gnu
         strip_parent: true
+      - src: target/x86_64-unknown-linux-gnu*/release/libacta_ffi.a
+        dst: x86_64-unknown-linux-gnu
+        strip_parent: true
       - src: target/aarch64-unknown-linux-gnu*/release/libacta_ffi.so
+        dst: aarch64-unknown-linux-gnu
+        strip_parent: true
+      - src: target/aarch64-unknown-linux-gnu*/release/libacta_ffi.a
         dst: aarch64-unknown-linux-gnu
         strip_parent: true
       - src: target/x86_64-pc-windows-gnu*/release/acta_ffi.dll
         dst: x86_64-pc-windows-gnu
         strip_parent: true
+      - src: target/x86_64-pc-windows-gnu*/release/libacta_ffi.a
+        dst: x86_64-pc-windows-gnu
+        strip_parent: true
       - src: target/aarch64-pc-windows-gnullvm*/release/acta_ffi.dll
+        dst: aarch64-pc-windows-gnullvm
+        strip_parent: true
+      - src: target/aarch64-pc-windows-gnullvm*/release/libacta_ffi.a
         dst: aarch64-pc-windows-gnullvm
         strip_parent: true
       - src: target/x86_64-apple-darwin*/release/libacta_ffi.dylib
         dst: x86_64-apple-darwin
         strip_parent: true
+      - src: target/x86_64-apple-darwin*/release/libacta_ffi.a
+        dst: x86_64-apple-darwin
+        strip_parent: true
       - src: target/aarch64-apple-darwin*/release/libacta_ffi.dylib
+        dst: aarch64-apple-darwin
+        strip_parent: true
+      - src: target/aarch64-apple-darwin*/release/libacta_ffi.a
         dst: aarch64-apple-darwin
         strip_parent: true
       - src: crates/acta-ffi/include/acta_ffi.h
@@ -178,4 +197,5 @@ release:
   extra_files:
     - glob: dist/*.tar.gz
     - glob: dist/*.zip
+    - glob: dist/*.wasm
     - glob: dist/checksums.txt
