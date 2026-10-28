@@ -108,30 +108,6 @@ jobs:
 
       - run: cargo check -p acta-wasm --target wasm32-unknown-unknown
 
-  bindings:
-    name: Native bindings (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: bindings
-          cache-workspace-crates: true
-          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-
-      - run: cargo build -p acta-ffi -p acta-napi
-
   audit:
     name: Audit dependencies
     runs-on: ubuntu-latest
@@ -163,10 +139,11 @@ jobs:
         include:
           - platform: linux-windows
             os: ubuntu-latest
-            targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-gnu,aarch64-pc-windows-gnullvm,aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf
+            targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-gnu,aarch64-pc-windows-gnullvm,aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,wasm32-unknown-unknown
             artifacts: |
               dist/*.tar.gz
               dist/*.zip
+              dist/*.wasm
           - platform: macos
             os: macos-latest
             targets: x86_64-apple-darwin,aarch64-apple-darwin
