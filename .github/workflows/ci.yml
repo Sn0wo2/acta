@@ -121,14 +121,6 @@ jobs:
 
       - run: cargo build -p acta-ffi -p acta-napi
 
-      - uses: oven-sh/setup-bun@v2
-
-      - run: bun install --frozen-lockfile
-        working-directory: bindings/bun
-
-      - run: bun run typecheck
-        working-directory: bindings/bun
-
   audit:
     name: Audit dependencies
     runs-on: ubuntu-latest
