@@ -70,17 +70,11 @@ jobs:
 
       - name: Apply saved lint fixes
         id: autofix_apply
-        if: >-
-          !cancelled() && steps.patch.outputs.changed == 'true' &&
-          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-          steps.autofix_checkout.outcome == 'success'
+        if: ${{ !cancelled() && steps.autofix_checkout.outcome == 'success' }}
         run: git apply --include='*.rs' "$RUNNER_TEMP/lint-fixes.patch"
 
       - uses: peter-evans/create-pull-request@v8
-        if: >-
-          !cancelled() && steps.patch.outputs.changed == 'true' &&
-          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-          steps.autofix_apply.outcome == 'success'
+        if: ${{ !cancelled() && steps.autofix_apply.outcome == 'success' }}
         with:
           commit-message: "chore(autofix): formatting and lint"
           branch: auto-fix/rust-${{ github.event.pull_request.number || github.ref_name }}
