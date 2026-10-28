@@ -14,13 +14,13 @@ exclude = [".github/", ".idea/", "img.png"]
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.1"
 rust-version = "1.88"
 
 [workspace.dependencies]
-acta = { path = ".", version = "0.8.0", default-features = false }
-acta-build = { path = "crates/acta-build", version = "0.8.0" }
-acta-abi = { path = "crates/acta-abi", version = "0.8.0" }
+acta = { path = ".", version = "0.8.1", default-features = false }
+acta-build = { path = "crates/acta-build", version = "0.8.1" }
+acta-abi = { path = "crates/acta-abi", version = "0.8.1" }
 
 [features]
 default = ["file"]
