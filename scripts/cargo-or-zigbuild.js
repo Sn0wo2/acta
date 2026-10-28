@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 const { createHash } = require("node:crypto")
 const { spawnSync } = require("node:child_process")
 const { resolve } = require("node:path")

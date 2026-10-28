@@ -1,0 +1,89 @@
+name: Build release archives
+description: Build and upload platform-specific GoReleaser archives
+inputs:
+  platform:
+    required: true
+    description: Build platform
+  targets:
+    required: true
+    description: Rust targets
+  artifacts:
+    required: true
+    description: Archive paths to upload
+  version:
+    required: false
+    description: Release version
+  snapshot:
+    required: false
+    default: 'true'
+    description: Build a snapshot
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@v2
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ inputs.targets }}
+        components: rust-src
+
+    - uses: taiki-e/install-action@v2
+      if: ${{ inputs.snapshot != 'true' }}
+      with:
+        tool: cargo-edit
+
+    - name: Sync workspace version
+      if: ${{ inputs.snapshot != 'true' }}
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        cargo set-version --workspace "$VERSION"
+        bun scripts/sync-napi-version.js
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: build-${{ inputs.platform }}${{ inputs.snapshot == 'true' && '-snapshot' || '' }}
+        cache-workspace-crates: true
+        save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-zigbuild
+
+    - name: Install mingw-w64
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+    - uses: mlugg/setup-zig@v2
+
+    - name: Ensure build script is executable
+      shell: bash
+      run: chmod +x scripts/cargo-or-zigbuild.js
+
+    - name: Build snapshot archives with debug-grade optimization
+      if: ${{ inputs.snapshot == 'true' }}
+      shell: bash
+      run: |
+        {
+          echo "CARGO_PROFILE_RELEASE_OPT_LEVEL=0"
+          echo "CARGO_PROFILE_RELEASE_LTO=false"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16"
+        } >> "$GITHUB_ENV"
+
+    - name: Build and package archives
+      uses: goreleaser/goreleaser-action@v7
+      with:
+        args: release --clean ${{ inputs.snapshot == 'true' && '--snapshot' || '--skip=publish,validate' }}
+      env:
+        BUILD_PLATFORM: ${{ inputs.platform }}
+        GORELEASER_CURRENT_TAG: ${{ inputs.version && format('v{0}', inputs.version) }}
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: ${{ github.event.repository.name }}-${{ inputs.platform }}-builds
+        path: ${{ inputs.artifacts }}
+        compression-level: 0
+        if-no-files-found: error
+        retention-days: ${{ inputs.snapshot == 'true' && 7 || 30 }}

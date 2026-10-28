@@ -17,9 +17,9 @@ jobs:
     name: Checks
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
     outputs:
-      autofix: ${{ steps.patch.outputs.changed }}
       has_binaries: ${{ steps.metadata.outputs.has_binaries }}
       has_library: ${{ steps.metadata.outputs.has_library }}
     steps:
@@ -37,15 +37,9 @@ jobs:
           cache-workspace-crates: true
           save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
-      - uses: actions/github-script@v9
+      - name: Collect workspace metadata
         id: metadata
-        with:
-          script: |
-            const { packages } = JSON.parse(
-              (await exec.getExecOutput("cargo", ["metadata", "--no-deps", "--format-version", "1"], { silent: true })).stdout,
-            )
-            core.setOutput("has_binaries", packages.some((pkg) => pkg.targets.some((target) => target.kind.includes("bin"))))
-            core.setOutput("has_library", packages.some((pkg) => pkg.targets.some((target) => target.kind.includes("lib"))))
+        run: node scripts/collect-ci-metadata.js
 
       - name: Apply lint fixes
         continue-on-error: true
@@ -61,17 +55,40 @@ jobs:
             git restore --worktree -- '*.rs'
           fi
 
-      - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() && steps.patch.outputs.changed == 'true' }}
-        with:
-          name: lint-fixes
-          path: ${{ runner.temp }}/lint-fixes.patch
-          retention-days: 7
-          if-no-files-found: error
-
       - run: make lint check check-no-default test test-all test-no-default doc
 
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+      - uses: actions/checkout@v7
+        id: autofix_checkout
+        if: >-
+          !cancelled() && steps.patch.outputs.changed == 'true' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          persist-credentials: false
+
+      - name: Apply saved lint fixes
+        id: autofix_apply
+        if: >-
+          !cancelled() && steps.patch.outputs.changed == 'true' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+          steps.autofix_checkout.outcome == 'success'
+        run: git apply --include='*.rs' "$RUNNER_TEMP/lint-fixes.patch"
+
+      - uses: peter-evans/create-pull-request@v8
+        if: >-
+          !cancelled() && steps.patch.outputs.changed == 'true' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+          steps.autofix_apply.outcome == 'success'
+        with:
+          commit-message: "chore(autofix): formatting and lint"
+          branch: auto-fix/rust-${{ github.event.pull_request.number || github.ref_name }}
+          delete-branch: true
+          title: "chore(autofix): formatting and lint"
+          body: "Automated rustfmt and Clippy fixes from CI"
+          labels: automated,rust
+          add-paths: "**/*.rs"
 
   wasm:
     name: WebAssembly
@@ -139,44 +156,43 @@ jobs:
 
       - run: cargo audit
 
-  autofix:
+  build:
+    name: Build ${{ matrix.platform }}
     needs: check
-    if: >-
-      !cancelled() && needs.check.outputs.autofix == 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
+    if: needs.check.outputs.has_binaries == 'true'
+    runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-windows
+            os: ubuntu-latest
+            targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-gnu,aarch64-pc-windows-gnullvm,aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf
+            artifacts: |
+              dist/*.tar.gz
+              dist/*.zip
+          - platform: macos
+            os: macos-latest
+            targets: x86_64-apple-darwin,aarch64-apple-darwin
+            artifacts: |
+              dist/*_darwin_*.tar.gz
+              dist/*_macos.tar.gz
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
+          ref: ${{ github.ref }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/build
         with:
-          name: lint-fixes
-          path: ${{ runner.temp }}/lint-fixes
-
-      - run: git apply --include='*.rs' "$RUNNER_TEMP/lint-fixes/lint-fixes.patch"
-
-      - uses: peter-evans/create-pull-request@v8
-        with:
-          commit-message: "chore(autofix): formatting and lint"
-          branch: auto-fix/rust-${{ github.event.pull_request.number || github.ref_name }}
-          delete-branch: true
-          title: "chore(autofix): formatting and lint"
-          body: "Automated rustfmt and Clippy fixes from CI"
-          labels: automated,rust
-          add-paths: "**/*.rs"
-
-  build:
-    needs: check
-    if: needs.check.outputs.has_binaries == 'true'
-    uses: ./.github/workflows/build.yml
-    permissions:
-      contents: read
+          platform: ${{ matrix.platform }}
+          targets: ${{ matrix.targets }}
+          artifacts: ${{ matrix.artifacts }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   geiger:
     name: Unsafe code report

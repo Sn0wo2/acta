@@ -26,14 +26,13 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       checks: read
     outputs:
       skip: ${{ steps.release.outputs.skip }}
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
-      sha: ${{ steps.metadata.outputs.sha }}
-      retry: ${{ steps.tag.outputs.retry }}
+      sha: ${{ steps.publish-tag.outputs.sha || steps.metadata.outputs.sha }}
       has_binaries: ${{ steps.metadata.outputs.has_binaries }}
       has_publishable_crates: ${{ steps.metadata.outputs.has_publishable_crates }}
     steps:
@@ -95,31 +94,17 @@ jobs:
         if: ${{ !inputs.snapshot && steps.release.outputs.skip != 'true' }}
         run: |
           cargo set-version --workspace "$VERSION"
-          if ! git diff --quiet -- '*Cargo.toml' Cargo.lock; then
+          node scripts/sync-napi-version.js
+          if ! git diff --quiet -- '*Cargo.toml' Cargo.lock crates/acta-napi/package.json; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/github-script@v9
+      - name: Collect release metadata
         id: metadata
         if: steps.release.outputs.skip != 'true'
         env:
           VERIFY_VERSION: ${{ !inputs.snapshot }}
-        with:
-          script: |
-            const { packages } = JSON.parse(
-              (await exec.getExecOutput("cargo", ["metadata", "--no-deps", "--format-version", "1"], { silent: true })).stdout,
-            )
-            const binaries = packages.filter((pkg) => pkg.targets.some((target) => target.kind.includes("bin")))
-            const publishable = packages.filter((pkg) => pkg.publish == null || pkg.publish.includes("crates-io"))
-            if (process.env.VERIFY_VERSION === "true") {
-              const mismatches = [...new Set([...binaries, ...publishable])].filter((pkg) => pkg.version !== process.env.VERSION)
-              if (mismatches.length) throw new Error(`Expected released packages to have version ${process.env.VERSION}`)
-            }
-            const sha = (await exec.getExecOutput("git", ["rev-parse", "HEAD"], { silent: true })).stdout.trim()
-            if (context.eventName === "push" && sha !== context.sha) throw new Error("Checkout does not match the pushed tag")
-            core.setOutput("has_binaries", binaries.length > 0)
-            core.setOutput("has_publishable_crates", publishable.length > 0)
-            core.setOutput("sha", sha)
+        run: node scripts/collect-release-metadata.js
 
       - name: Reuse CI checks for this commit
         if: github.event_name == 'push' && steps.release.outputs.skip != 'true' && steps.sync.outputs.changed != 'true'
@@ -138,108 +123,64 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         if: steps.release.outputs.skip != 'true' && (github.event_name == 'workflow_dispatch' || steps.sync.outputs.changed == 'true')
 
-      - name: Save the checked version changes
-        if: github.event_name == 'workflow_dispatch' && !inputs.snapshot && steps.release.outputs.skip != 'true' && steps.tag.outputs.retry != 'true'
-        run: git diff --binary -- '*Cargo.toml' Cargo.lock > "$RUNNER_TEMP/version.patch"
-
-      - uses: actions/upload-artifact@v7
-        if: github.event_name == 'workflow_dispatch' && !inputs.snapshot && steps.release.outputs.skip != 'true' && steps.tag.outputs.retry != 'true'
-        with:
-          name: version-changes
-          path: ${{ runner.temp }}/version.patch
-          retention-days: 1
-          if-no-files-found: error
-
-  tag:
-    needs: prepare
-    if: >-
-      github.event_name == 'workflow_dispatch' && !inputs.snapshot &&
-      needs.prepare.outputs.skip != 'true' && needs.prepare.outputs.retry != 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      sha: ${{ steps.commit.outputs.sha }}
-    env:
-      VERSION: ${{ needs.prepare.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.prepare.outputs.sha }}
-          persist-credentials: false
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: version-changes
-          path: ${{ runner.temp }}/version-changes
-
-      - run: git apply --allow-empty --include='*Cargo.toml' --include=Cargo.lock "$RUNNER_TEMP/version-changes/version.patch"
-
       - name: Commit and tag the checked version
-        id: commit
+        id: publish-tag
+        if: github.event_name == 'workflow_dispatch' && !inputs.snapshot && steps.release.outputs.skip != 'true' && steps.tag.outputs.retry != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -u
+          git add -u -- '*Cargo.toml' Cargo.lock crates/acta-napi/package.json
           git diff --cached --quiet || git commit -m "chore(release): bump version to $VERSION"
           git tag "v$VERSION"
           git -c credential.helper='!gh auth git-credential' push --atomic origin "HEAD:refs/heads/$DEFAULT_BRANCH" "refs/tags/v$VERSION"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: [prepare, tag]
+    name: Build ${{ matrix.platform }}
+    needs: prepare
     if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.has_binaries == 'true' &&
-      (needs.tag.result == 'success' || needs.tag.result == 'skipped')
-    uses: ./.github/workflows/build.yml
+      !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.has_binaries == 'true'
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-    with:
-      ref: ${{ needs.tag.outputs.sha || needs.prepare.outputs.sha }}
-      version: ${{ needs.prepare.outputs.version }}
-      snapshot: ${{ inputs.snapshot == true }}
-
-  crates:
-    needs: [prepare, tag, build]
-    if: >-
-      !cancelled() && !inputs.snapshot && needs.prepare.outputs.has_publishable_crates == 'true' &&
-      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    env:
-      VERSION: ${{ needs.prepare.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-windows
+            os: ubuntu-latest
+            targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-gnu,aarch64-pc-windows-gnullvm,aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf
+            artifacts: |
+              dist/*.tar.gz
+              dist/*.zip
+          - platform: macos
+            os: macos-latest
+            targets: x86_64-apple-darwin,aarch64-apple-darwin
+            artifacts: |
+              dist/*_darwin_*.tar.gz
+              dist/*_macos.tar.gz
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.tag.outputs.sha || needs.prepare.outputs.sha }}
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/build
         with:
-          shared-key: check
-          cache-workspace-crates: true
-          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-edit
-
-      - name: Sync workspace version
-        run: cargo set-version --workspace "$VERSION"
-
-      - uses: katyo/publish-crates@v2
-        with:
-          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          args: --allow-dirty
+          platform: ${{ matrix.platform }}
+          targets: ${{ matrix.targets }}
+          artifacts: ${{ matrix.artifacts }}
+          version: ${{ needs.prepare.outputs.version }}
+          snapshot: ${{ inputs.snapshot == true }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish:
-    needs: [prepare, tag, build, crates]
+    needs: [prepare, build]
     if: >-
       !cancelled() && !inputs.snapshot && needs.prepare.result == 'success' &&
       needs.prepare.outputs.skip != 'true' &&
@@ -250,9 +191,38 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.tag.outputs.sha || needs.prepare.outputs.sha }}
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: needs.prepare.outputs.has_publishable_crates == 'true'
+
+      - uses: Swatinem/rust-cache@v2
+        if: needs.prepare.outputs.has_publishable_crates == 'true'
+        with:
+          shared-key: check
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - uses: taiki-e/install-action@v2
+        if: needs.prepare.outputs.has_publishable_crates == 'true'
+        with:
+          tool: cargo-edit
+
+      - name: Sync workspace version
+        if: needs.prepare.outputs.has_publishable_crates == 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: cargo set-version --workspace "$VERSION"
+
+      - uses: katyo/publish-crates@v2
+        if: needs.prepare.outputs.has_publishable_crates == 'true'
+        with:
+          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          args: --allow-dirty
+
+      - uses: oven-sh/setup-bun@v2
 
       - uses: actions/download-artifact@v8
         if: needs.prepare.outputs.has_binaries == 'true'
@@ -260,6 +230,21 @@ jobs:
           pattern: ${{ github.event.repository.name }}-*-builds
           merge-multiple: true
           path: dist
+
+      - name: Assemble npm package
+        if: needs.build.result == 'success'
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: bash scripts/assemble-npm.sh
+
+      - name: Publish to npm
+        if: needs.build.result == 'success'
+        shell: bash
+        env:
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bash scripts/publish-npm.sh
 
       - name: Generate checksums
         if: needs.prepare.outputs.has_binaries == 'true'
