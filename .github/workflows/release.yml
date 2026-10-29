@@ -240,7 +240,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: needs.build.result == 'success'
         with:
-          node-version: "24"
+          node-version: "26"
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
