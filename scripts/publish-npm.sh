@@ -8,10 +8,8 @@ bun -e '
   throw new Error(`npm version lookup failed: ${response.status}`);
 ' && { echo "Version already published; skipping."; exit 0; } || status=$?
 [[ $status == 2 ]] || exit "$status"
-printf '%s\n' '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/npmrc"
-export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
 if [[ "$PRERELEASE" == true ]]; then
-  bun publish --tag next
+  npm publish --tag next
 else
-  bun publish
+  npm publish
 fi

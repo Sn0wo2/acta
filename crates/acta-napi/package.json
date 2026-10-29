@@ -1,6 +1,11 @@
 {
   "name": "acta-napi",
   "version": "0.8.2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sn0wo2/acta.git",
+    "directory": "crates/acta-napi"
+  },
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {

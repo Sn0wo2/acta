@@ -211,6 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -236,6 +237,17 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - uses: actions/setup-node@v7
+        if: needs.build.result == 'success'
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Update npm
+        if: needs.build.result == 'success'
+        run: npm install --global npm@latest
+
       - uses: actions/download-artifact@v8
         if: needs.prepare.outputs.has_binaries == 'true'
         with:
@@ -255,7 +267,6 @@ jobs:
         shell: bash
         env:
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: bash scripts/publish-npm.sh
 
       - name: Generate checksums
