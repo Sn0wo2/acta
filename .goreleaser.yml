@@ -7,23 +7,23 @@ env:
 before:
   hooks:
     - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo check -p acta --lib --no-default-features --features wasm-console --target wasm32-unknown-unknown{{ else }}echo Skipping WebAssembly feature check{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo build --locked --release -p acta-wasm --target wasm32-unknown-unknown && mkdir -p dist && cp target/wasm32-unknown-unknown/release/acta_wasm.wasm dist/acta_wasm.wasm{{ else }}echo Skipping WebAssembly{{ end }}'
-    - bun install --cwd crates/acta-napi --frozen-lockfile && bun run --cwd crates/acta-napi build:release
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target x86_64-unknown-linux-gnu.2.17{{ else }}echo Skipping Linux amd64 bindings{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target aarch64-unknown-linux-gnu.2.17{{ else }}echo Skipping Linux arm64 bindings{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target x86_64-pc-windows-gnu{{ else }}echo Skipping Windows amd64 bindings{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --release -p acta-ffi -p acta-napi --target aarch64-pc-windows-gnullvm --config ''target.aarch64-pc-windows-gnullvm.rustflags=["-l","unwind"]''{{ else }}echo Skipping Windows arm64 bindings{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --release -p acta-ffi --target x86_64-apple-darwin --config ''target.x86_64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/libacta_ffi.dylib"]''{{ else }}echo Skipping macOS amd64 FFI{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --release -p acta-ffi --target aarch64-apple-darwin --config ''target.aarch64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/libacta_ffi.dylib"]''{{ else }}echo Skipping macOS arm64 FFI{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --release -p acta-napi --target x86_64-apple-darwin --config ''target.x86_64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/acta_napi.node"]''{{ else }}echo Skipping macOS amd64 N-API{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --release -p acta-napi --target aarch64-apple-darwin --config ''target.aarch64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/acta_napi.node"]''{{ else }}echo Skipping macOS arm64 N-API{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo build --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-wasm --target wasm32-unknown-unknown && mkdir -p dist && cp target/wasm32-unknown-unknown/{{ envOrDefault "BUILD_PROFILE" "release" }}/acta_wasm.wasm dist/acta_wasm.wasm{{ else }}echo Skipping WebAssembly{{ end }}'
+    - 'bun install --cwd crates/acta-napi --frozen-lockfile && bun run --cwd crates/acta-napi build{{ if ne (envOrDefault "BUILD_PROFILE" "release") "debug" }}:release{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-ffi -p acta-napi --target x86_64-unknown-linux-gnu.2.17{{ else }}echo Skipping Linux amd64 bindings{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-ffi -p acta-napi --target aarch64-unknown-linux-gnu.2.17{{ else }}echo Skipping Linux arm64 bindings{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-ffi -p acta-napi --target x86_64-pc-windows-gnu{{ else }}echo Skipping Windows amd64 bindings{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cargo zigbuild --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-ffi -p acta-napi --target aarch64-pc-windows-gnullvm --config ''target.aarch64-pc-windows-gnullvm.rustflags=["-l","unwind"]''{{ else }}echo Skipping Windows arm64 bindings{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-ffi --target x86_64-apple-darwin --config ''target.x86_64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/libacta_ffi.dylib"]''{{ else }}echo Skipping macOS amd64 FFI{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-ffi --target aarch64-apple-darwin --config ''target.aarch64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/libacta_ffi.dylib"]''{{ else }}echo Skipping macOS arm64 FFI{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-napi --target x86_64-apple-darwin --config ''target.x86_64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/acta_napi.node"]''{{ else }}echo Skipping macOS amd64 N-API{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cargo build --locked --profile {{ if eq (envOrDefault "BUILD_PROFILE" "release") "debug" }}dev{{ else }}release{{ end }} -p acta-napi --target aarch64-apple-darwin --config ''target.aarch64-apple-darwin.rustflags=["-C","link-arg=-Wl,-install_name,@rpath/acta_napi.node"]''{{ else }}echo Skipping macOS arm64 N-API{{ end }}'
     - 'mkdir -p target/napi/{{ envOrDefault "BUILD_PLATFORM" "linux-windows" }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/x86_64-unknown-linux-gnu/release/libacta_napi.so target/napi/linux-windows/acta_napi.linux-x64-gnu.node{{ else }}echo Skipping Linux amd64 N-API staging{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/aarch64-unknown-linux-gnu/release/libacta_napi.so target/napi/linux-windows/acta_napi.linux-arm64-gnu.node{{ else }}echo Skipping Linux arm64 N-API staging{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/x86_64-pc-windows-gnu/release/acta_napi.dll target/napi/linux-windows/acta_napi.win32-x64-msvc.node{{ else }}echo Skipping Windows amd64 N-API staging{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/aarch64-pc-windows-gnullvm/release/acta_napi.dll target/napi/linux-windows/acta_napi.win32-arm64-msvc.node{{ else }}echo Skipping Windows arm64 N-API staging{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cp target/x86_64-apple-darwin/release/libacta_napi.dylib target/napi/macos/acta_napi.darwin-x64.node{{ else }}echo Skipping macOS amd64 N-API staging{{ end }}'
-    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cp target/aarch64-apple-darwin/release/libacta_napi.dylib target/napi/macos/acta_napi.darwin-arm64.node{{ else }}echo Skipping macOS arm64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/x86_64-unknown-linux-gnu/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_napi.so target/napi/linux-windows/acta_napi.linux-x64-gnu.node{{ else }}echo Skipping Linux amd64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/aarch64-unknown-linux-gnu/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_napi.so target/napi/linux-windows/acta_napi.linux-arm64-gnu.node{{ else }}echo Skipping Linux arm64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/x86_64-pc-windows-gnu/{{ envOrDefault "BUILD_PROFILE" "release" }}/acta_napi.dll target/napi/linux-windows/acta_napi.win32-x64-msvc.node{{ else }}echo Skipping Windows amd64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "linux-windows" }}cp target/aarch64-pc-windows-gnullvm/{{ envOrDefault "BUILD_PROFILE" "release" }}/acta_napi.dll target/napi/linux-windows/acta_napi.win32-arm64-msvc.node{{ else }}echo Skipping Windows arm64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cp target/x86_64-apple-darwin/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_napi.dylib target/napi/macos/acta_napi.darwin-x64.node{{ else }}echo Skipping macOS amd64 N-API staging{{ end }}'
+    - '{{ if eq (envOrDefault "BUILD_PLATFORM" "linux-windows") "macos" }}cp target/aarch64-apple-darwin/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_napi.dylib target/napi/macos/acta_napi.darwin-arm64.node{{ else }}echo Skipping macOS arm64 N-API staging{{ end }}'
 
 builds:
   - &darwin-build
@@ -112,40 +112,40 @@ archives:
     formats:
       - tar.gz
     files:
-      - src: target/x86_64-unknown-linux-gnu*/release/libacta_ffi.so
+      - src: 'target/x86_64-unknown-linux-gnu*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.so'
         dst: x86_64-unknown-linux-gnu
         strip_parent: true
-      - src: target/x86_64-unknown-linux-gnu*/release/libacta_ffi.a
+      - src: 'target/x86_64-unknown-linux-gnu*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.a'
         dst: x86_64-unknown-linux-gnu
         strip_parent: true
-      - src: target/aarch64-unknown-linux-gnu*/release/libacta_ffi.so
+      - src: 'target/aarch64-unknown-linux-gnu*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.so'
         dst: aarch64-unknown-linux-gnu
         strip_parent: true
-      - src: target/aarch64-unknown-linux-gnu*/release/libacta_ffi.a
+      - src: 'target/aarch64-unknown-linux-gnu*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.a'
         dst: aarch64-unknown-linux-gnu
         strip_parent: true
-      - src: target/x86_64-pc-windows-gnu*/release/acta_ffi.dll
+      - src: 'target/x86_64-pc-windows-gnu*/{{ envOrDefault "BUILD_PROFILE" "release" }}/acta_ffi.dll'
         dst: x86_64-pc-windows-gnu
         strip_parent: true
-      - src: target/x86_64-pc-windows-gnu*/release/libacta_ffi.a
+      - src: 'target/x86_64-pc-windows-gnu*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.a'
         dst: x86_64-pc-windows-gnu
         strip_parent: true
-      - src: target/aarch64-pc-windows-gnullvm*/release/acta_ffi.dll
+      - src: 'target/aarch64-pc-windows-gnullvm*/{{ envOrDefault "BUILD_PROFILE" "release" }}/acta_ffi.dll'
         dst: aarch64-pc-windows-gnullvm
         strip_parent: true
-      - src: target/aarch64-pc-windows-gnullvm*/release/libacta_ffi.a
+      - src: 'target/aarch64-pc-windows-gnullvm*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.a'
         dst: aarch64-pc-windows-gnullvm
         strip_parent: true
-      - src: target/x86_64-apple-darwin*/release/libacta_ffi.dylib
+      - src: 'target/x86_64-apple-darwin*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.dylib'
         dst: x86_64-apple-darwin
         strip_parent: true
-      - src: target/x86_64-apple-darwin*/release/libacta_ffi.a
+      - src: 'target/x86_64-apple-darwin*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.a'
         dst: x86_64-apple-darwin
         strip_parent: true
-      - src: target/aarch64-apple-darwin*/release/libacta_ffi.dylib
+      - src: 'target/aarch64-apple-darwin*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.dylib'
         dst: aarch64-apple-darwin
         strip_parent: true
-      - src: target/aarch64-apple-darwin*/release/libacta_ffi.a
+      - src: 'target/aarch64-apple-darwin*/{{ envOrDefault "BUILD_PROFILE" "release" }}/libacta_ffi.a'
         dst: aarch64-apple-darwin
         strip_parent: true
       - src: crates/acta-ffi/include/acta_ffi.h

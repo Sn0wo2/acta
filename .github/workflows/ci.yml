@@ -138,6 +138,7 @@ jobs:
           platform: ${{ matrix.platform }}
           targets: ${{ matrix.targets }}
           artifacts: ${{ matrix.artifacts }}
+          profile: debug
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

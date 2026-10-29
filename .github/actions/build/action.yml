@@ -17,6 +17,10 @@ inputs:
     required: false
     default: 'true'
     description: Build a snapshot
+  profile:
+    required: false
+    default: release
+    description: Cargo build profile
 runs:
   using: composite
   steps:
@@ -62,22 +66,13 @@ runs:
       shell: bash
       run: chmod +x scripts/cargo-or-zigbuild.js
 
-    - name: Build snapshot archives with debug-grade optimization
-      if: ${{ inputs.snapshot == 'true' }}
-      shell: bash
-      run: |
-        {
-          echo "CARGO_PROFILE_RELEASE_OPT_LEVEL=0"
-          echo "CARGO_PROFILE_RELEASE_LTO=false"
-          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16"
-        } >> "$GITHUB_ENV"
-
     - name: Build and package archives
       uses: goreleaser/goreleaser-action@v7
       with:
         args: release --clean ${{ inputs.snapshot == 'true' && '--snapshot' || '--skip=publish,validate' }}
       env:
         BUILD_PLATFORM: ${{ inputs.platform }}
+        BUILD_PROFILE: ${{ inputs.profile }}
         GORELEASER_CURRENT_TAG: ${{ inputs.version && format('v{0}', inputs.version) }}
 
     - uses: actions/upload-artifact@v7
