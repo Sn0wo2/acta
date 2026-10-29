@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acta"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "acta-build",
  "ansi_colours",
@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "acta-abi"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "acta",
  "serde",
@@ -42,14 +42,14 @@ dependencies = [
 
 [[package]]
 name = "acta-build"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "walkdir",
 ]
 
 [[package]]
 name = "acta-debug"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "acta",
  "smallvec",
@@ -59,7 +59,7 @@ dependencies = [
 
 [[package]]
 name = "acta-ffi"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "acta",
  "acta-abi",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "acta-napi"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "acta",
  "acta-abi",
@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "acta-wasm"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "acta",
  "acta-abi",
