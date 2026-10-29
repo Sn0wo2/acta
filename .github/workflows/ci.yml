@@ -43,7 +43,9 @@ jobs:
 
       - name: Apply lint fixes
         continue-on-error: true
-        run: make lint-fix
+        run: |
+          cargo fmt-all
+          cargo lint-fix
 
       - name: Save lint fixes
         id: patch
@@ -55,7 +57,15 @@ jobs:
             git restore --worktree -- '*.rs'
           fi
 
-      - run: make lint check check-no-default test test-all test-no-default doc
+      - run: |
+          cargo fmt-check
+          cargo lint
+          cargo check-ws
+          cargo check-no-default
+          cargo test-ws
+          cargo test-all-features
+          cargo test-no-default
+          cargo doc-all
 
       - uses: EmbarkStudios/cargo-deny-action@v2
 
@@ -76,6 +86,7 @@ jobs:
       - uses: peter-evans/create-pull-request@v8
         if: ${{ !cancelled() && steps.autofix_apply.outcome == 'success' }}
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(autofix): formatting and lint"
           branch: auto-fix/rust-${{ github.event.pull_request.number || github.ref_name }}
           delete-branch: true

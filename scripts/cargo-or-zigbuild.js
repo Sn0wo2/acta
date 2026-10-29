@@ -56,10 +56,16 @@ if (debugProfile) {
   args.splice(0, args.length, ...buildArgs)
 }
 
+const binIndex = args.findIndex((arg) => arg === "--bin" || arg.startsWith("--bin="))
+const bin = args[binIndex] === "--bin" ? args[binIndex + 1] : args[binIndex]?.slice(6)
 const targetPrefix = target?.split(".", 1)[0]
 const targetAbi = targetPrefix?.slice(targetPrefix.lastIndexOf("-") + 1)
 const outputTarget = target && targetAbi?.startsWith("gnu") && targetAbi !== "gnullvm" ? targetPrefix : target
-const outputName = `acta-debug${cargoTarget?.includes("windows") ? ".exe" : ""}`
+if (debugProfile && (!bin || !outputTarget)) {
+  console.error("ERROR: debug builds require a binary name and target")
+  process.exit(1)
+}
+const outputName = `${bin ?? "acta-debug"}${cargoTarget?.includes("windows") ? ".exe" : ""}`
 const releasePath = outputTarget && resolve("target", outputTarget, "release", outputName)
 if (debugProfile && releasePath) rmSync(releasePath, { force: true })
 

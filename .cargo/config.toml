@@ -1,0 +1,22 @@
+[alias]
+fmt-all = "fmt --all"
+fmt-check = "fmt --all -- --check"
+check-ws = "check --workspace --all-targets"
+check-all-features = "check --workspace --all-targets --all-features"
+check-no-default = "check --workspace --all-targets --no-default-features"
+check-wasm = "check -p acta --lib --no-default-features --features wasm-console --target wasm32-unknown-unknown"
+lint = "clippy --workspace --all-targets --all-features -- -D warnings"
+lint-fix = "clippy --workspace --all-targets --all-features --fix --allow-dirty --allow-staged"
+test-ws = "test --workspace"
+test-all-features = "test --workspace --all-features"
+test-no-default = "test --workspace --no-default-features"
+doc-all = "doc --workspace --no-deps --all-features"
+security = "deny check"
+build-ws = "build --workspace"
+publish-dry-build = "publish --manifest-path crates/acta-build/Cargo.toml --dry-run --allow-dirty"
+publish-dry-acta = "publish --dry-run --allow-dirty"
+run-debug = "run -p acta-debug --all-features"
+check-debug = "check -p acta-debug --all-features"
+
+[env]
+RUSTDOCFLAGS = "-D warnings"
