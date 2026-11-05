@@ -1,26 +1,27 @@
 name: Build release archives
-description: Build and upload platform-specific GoReleaser archives
+description: Build and package the cross-platform Rust binaries
 inputs:
-  platform:
-    required: true
-    description: Build platform
-  targets:
-    required: true
-    description: Rust targets
-  artifacts:
-    required: true
-    description: Archive paths to upload
   version:
+    description: Release version, if this is not a snapshot build
     required: false
-    description: Release version
+    default: ''
   snapshot:
+    description: Whether to build a non-publishing snapshot
     required: false
     default: 'true'
-    description: Build a snapshot
   profile:
+    description: Cargo build profile
     required: false
     default: release
-    description: Cargo build profile
+  platform:
+    description: Build platform group
+    required: true
+  targets:
+    description: Rust targets to install
+    required: true
+  artifacts:
+    description: Archive paths to upload
+    required: true
 runs:
   using: composite
   steps:
@@ -57,14 +58,14 @@ runs:
 
     - name: Install mingw-w64
       if: runner.os == 'Linux'
-      shell: bash
       run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      shell: bash
 
     - uses: mlugg/setup-zig@v2
 
     - name: Ensure build script is executable
-      shell: bash
       run: chmod +x scripts/cargo-or-zigbuild.js
+      shell: bash
 
     - name: Build and package archives
       uses: goreleaser/goreleaser-action@v7
@@ -74,6 +75,7 @@ runs:
         BUILD_PLATFORM: ${{ inputs.platform }}
         BUILD_PROFILE: ${{ inputs.profile }}
         GORELEASER_CURRENT_TAG: ${{ inputs.version && format('v{0}', inputs.version) }}
+        GITHUB_TOKEN: ${{ github.token }}
 
     - uses: actions/upload-artifact@v7
       with:

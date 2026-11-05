@@ -69,25 +69,26 @@ jobs:
 
       - uses: EmbarkStudios/cargo-deny-action@v2
 
-      - uses: actions/checkout@v7
+      - name: Checkout the branch for autofix
         id: autofix_checkout
         if: >-
           !cancelled() && steps.patch.outputs.changed == 'true' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref || github.ref_name }}
           persist-credentials: false
 
-      - name: Apply saved lint fixes
-        id: autofix_apply
+      - name: Apply lint fixes
+        id: apply_fix
         if: ${{ !cancelled() && steps.autofix_checkout.outcome == 'success' }}
         run: git apply --include='*.rs' "$RUNNER_TEMP/lint-fixes.patch"
 
       - name: Create autofix pull request
         id: autofix_pr
         continue-on-error: true
+        if: ${{ !cancelled() && steps.apply_fix.outcome == 'success' }}
         uses: peter-evans/create-pull-request@v8
-        if: ${{ !cancelled() && steps.autofix_apply.outcome == 'success' }}
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore(autofix): formatting and lint"
@@ -106,24 +107,6 @@ jobs:
           path: ${{ runner.temp }}/lint-fixes.patch
           if-no-files-found: error
           retention-days: 7
-
-  audit:
-    name: Audit dependencies
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-audit
-
-      - run: cargo audit
 
   build:
     name: Build ${{ matrix.platform }}
@@ -158,12 +141,29 @@ jobs:
 
       - uses: ./.github/actions/build
         with:
+          snapshot: 'true'
+          profile: debug
           platform: ${{ matrix.platform }}
           targets: ${{ matrix.targets }}
           artifacts: ${{ matrix.artifacts }}
-          profile: debug
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  audit:
+    name: Audit dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - run: cargo audit
 
   geiger:
     name: Unsafe code report
