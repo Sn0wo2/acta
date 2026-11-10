@@ -8,7 +8,7 @@ repository = "https://github.com/Sn0wo2/acta"
 license = "Apache-2.0"
 keywords = ["tracing", "logging", "formatting", "colors", "theme"]
 categories = ["development-tools::debugging", "development-tools::profiling"]
-exclude = [".github/", ".idea/", "img.png"]
+exclude = [".github/", ".idea/"]
 
 [workspace]
 members = ["crates/*"]
