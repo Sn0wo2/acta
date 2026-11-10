@@ -83,7 +83,7 @@ fn build_dispatch(config: Config) -> crate::Result<TracingGuard> {
                     std::fs::create_dir_all(parent)?;
                 }
 
-                if config.path.exists() {
+                if !matches!(config.rotation, Rotation::None) && config.path.exists() {
                     let timestamp = chrono::Local::now()
                         .format("%Y-%m-%d_%H-%M-%S%.3f")
                         .to_string();
