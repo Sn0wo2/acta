@@ -14,7 +14,7 @@ doc-all = "doc --workspace --no-deps --all-features"
 security = "deny check"
 build-ws = "build --workspace"
 publish-dry-build = "publish --manifest-path crates/acta-build/Cargo.toml --dry-run --allow-dirty"
-publish-dry-acta = "publish --dry-run --allow-dirty"
+publish-dry = "publish --dry-run --allow-dirty"
 run-debug = "run -p acta-debug --all-features"
 check-debug = "check -p acta-debug --all-features"
 

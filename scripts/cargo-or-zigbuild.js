@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 const { createHash } = require("node:crypto")
 const { spawnSync } = require("node:child_process")
 const { copyFileSync, mkdirSync, rmSync } = require("node:fs")
@@ -35,45 +35,29 @@ if (target === "x86_64-pc-windows-gnu" && target !== host) {
 }
 args.unshift(command)
 
-const debugProfile = process.env.BUILD_PROFILE === "debug"
-if (debugProfile) {
-  const buildArgs = []
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--release" || args[i] === "-r" || args[i].startsWith("--profile=")) continue
-    if (args[i] === "--profile") {
-      i++
-      continue
-    }
-    buildArgs.push(args[i])
-  }
-  buildArgs.push("--profile=dev")
-  args.splice(0, args.length, ...buildArgs)
-}
-
 const binIndex = args.findIndex((arg) => arg === "--bin" || arg.startsWith("--bin="))
 const bin = args[binIndex] === "--bin" ? args[binIndex + 1] : args[binIndex]?.slice(6)
 const targetPrefix = target?.split(".", 1)[0]
 const abi = targetPrefix?.slice(targetPrefix.lastIndexOf("-") + 1)
 const outputTarget = target && abi?.startsWith("gnu") && abi !== "gnullvm" ? targetPrefix : target
-if (debugProfile && (!bin || !outputTarget)) {
+if (process.env.BUILD_PROFILE === "debug" && (!bin || !outputTarget)) {
   console.error("ERROR: debug builds require a binary name and target")
   process.exit(1)
 }
-const outputName = `${bin}${target?.includes("windows") ? ".exe" : ""}`
-const releasePath = outputTarget && resolve("target", outputTarget, "release", outputName)
-if (debugProfile && releasePath) rmSync(releasePath, { force: true })
-
-const result = spawnSync("cargo", args, { stdio: "inherit", env })
-
-if (debugProfile && result.status === 0 && outputTarget) {
-  const debugPath = resolve("target", outputTarget, "debug", outputName)
-  try {
-    mkdirSync(resolve("target", outputTarget, "release"), { recursive: true })
-    copyFileSync(debugPath, releasePath)
-  } catch (error) {
-    console.error(`ERROR: Could not stage debug executable: ${error.message}`)
-    process.exit(1)
-  }
+if (process.env.BUILD_PROFILE === "debug") {
+  const release = args.indexOf("--release")
+  if (release !== -1) args.splice(release, 1)
+  args.push("--profile=dev")
 }
-
+if (process.env.BUILD_PROFILE === "debug") {
+  rmSync(resolve("target", outputTarget, "release", `${bin}${target?.includes("windows") ? ".exe" : ""}`), { force: true })
+}
+const result = spawnSync("cargo", args, { stdio: "inherit", env })
+if (process.env.BUILD_PROFILE === "debug" && result.status === 0) {
+  mkdirSync(resolve("target", outputTarget, "release"), { recursive: true })
+  copyFileSync(
+    resolve("target", outputTarget, "debug", `${bin}${target?.includes("windows") ? ".exe" : ""}`),
+    resolve("target", outputTarget, "release", `${bin}${target?.includes("windows") ? ".exe" : ""}`),
+  )
+}
 process.exit(result.status ?? 1)
