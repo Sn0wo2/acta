@@ -48,7 +48,13 @@ pub(crate) mod optional_levels {
     ) -> Result<S::Ok, S::Error> {
         levels
             .as_ref()
-            .map(|levels| levels.iter().map(Level::as_str).collect::<Vec<_>>())
+            .map(|levels| {
+                levels
+                    .iter()
+                    .map(Level::as_str)
+                    .collect::<smallvec::SmallVec<[_; 8]>>()
+            })
+            .as_deref()
             .serialize(serializer)
     }
 

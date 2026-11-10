@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use std::fmt;
 use std::mem::size_of;
 use std::sync::{Mutex, OnceLock};
@@ -209,7 +210,7 @@ pub(crate) fn schema_for(
     Ok(callsite.metadata())
 }
 
-pub(crate) fn field_names(event: &Event) -> crate::Result<Vec<&str>> {
+pub(crate) fn field_names(event: &Event) -> crate::Result<SmallVec<[&str; 8]>> {
     if event.fields.contains_key("message") || event.fields.contains_key("msg") {
         let field = if event.fields.contains_key("message") {
             "message"
@@ -219,8 +220,12 @@ pub(crate) fn field_names(event: &Event) -> crate::Result<Vec<&str>> {
         return Err(crate::ActaError::EventReservedField(field.to_owned()));
     }
 
-    let mut field_names: Vec<&str> = event.fields.keys().map(String::as_str).collect();
-    field_names.push("message");
+    let mut field_names: SmallVec<[_; 8]> = event
+        .fields
+        .keys()
+        .map(String::as_str)
+        .chain(std::iter::once("message"))
+        .collect();
     field_names.sort_unstable();
     Ok(field_names)
 }
@@ -239,7 +244,7 @@ pub(crate) fn emit(
             return;
         }
 
-        let mut values = Vec::with_capacity(event.fields.len());
+        let mut values = SmallVec::<[_; 8]>::with_capacity(event.fields.len());
         for field in metadata.fields().iter() {
             if field.name() != "message"
                 && let Some(value) = event.fields.get(field.name())
@@ -250,7 +255,7 @@ pub(crate) fn emit(
 
         let message_value: &dyn tracing::field::Value = &event.message;
         let mut values = values.iter();
-        let value_set: Vec<Option<&(dyn tracing::field::Value + '_)>> = metadata
+        let value_set: SmallVec<[_; 8]> = metadata
             .fields()
             .iter()
             .map(|field| match field.name() {

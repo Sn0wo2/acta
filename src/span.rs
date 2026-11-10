@@ -1,5 +1,6 @@
 use crate::event::JsonFieldValue;
 use serde_json::{Map, Value};
+use smallvec::SmallVec;
 use std::{
     collections::HashMap,
     sync::{Mutex, PoisonError},
@@ -67,27 +68,28 @@ impl Span {
             return Self(TracingSpan::new_disabled(metadata), metadata);
         }
 
-        let mut recorded = Vec::new();
+        let field_set = metadata.fields();
+        let mut recorded = SmallVec::<[_; 8]>::with_capacity(field_set.len());
 
-        if let Some(field) = metadata.fields().field("message") {
+        if let Some(field) = field_set.field("message") {
             recorded.push((field, JsonFieldValue::String(&event.message)));
         }
 
         for (name, value) in &event.fields {
-            if let Some(field) = metadata.fields().field(name.as_str())
+            if let Some(field) = field_set.field(name.as_str())
                 && field.name() != "message"
             {
                 recorded.push((field, JsonFieldValue::new(value)));
             }
         }
 
-        let mut values = vec![None; metadata.fields().len()];
+        let mut values = SmallVec::<[_; 8]>::from_elem(None, field_set.len());
         for (field, value) in &recorded {
             if let Some(slot) = values.get_mut(field.index()) {
                 *slot = Some(value.as_value());
             }
         }
-        let values = metadata.fields().value_set_all(&values);
+        let values = field_set.value_set_all(&values);
         let parent = parent.and_then(|span| span.0.id());
 
         Self(
@@ -99,21 +101,14 @@ impl Span {
     pub(crate) fn record(&self, fields: &Map<String, Value>) -> Result<(), String> {
         let field_set = self.1.fields();
 
-        for name in fields.keys() {
-            if field_set.field(name.as_str()).is_none() {
-                return Err(format!("unknown span field: {name}"));
-            }
+        let mut recorded = SmallVec::<[_; 8]>::with_capacity(fields.len().min(field_set.len()));
+        for (name, value) in fields {
+            let field = field_set
+                .field(name.as_str())
+                .ok_or_else(|| format!("unknown span field: {name}"))?;
+            recorded.push((field, JsonFieldValue::new(value)));
         }
-
-        let recorded = fields
-            .iter()
-            .filter_map(|(name, value)| {
-                field_set
-                    .field(name.as_str())
-                    .map(|field| (field, JsonFieldValue::new(value)))
-            })
-            .collect::<Vec<_>>();
-        let mut values = vec![None; field_set.len()];
+        let mut values = SmallVec::<[_; 8]>::from_elem(None, field_set.len());
         for (field, value) in &recorded {
             if let Some(slot) = values.get_mut(field.index()) {
                 *slot = Some(value.as_value());
