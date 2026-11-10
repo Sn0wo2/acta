@@ -39,12 +39,12 @@ runs:
 
     - name: Sync workspace version
       if: ${{ inputs.snapshot != 'true' }}
-      shell: bash
-      env:
-        VERSION: ${{ inputs.version }}
       run: |
         cargo set-version --workspace "$VERSION"
         bun scripts/sync-napi-version.js
+      env:
+        VERSION: ${{ inputs.version }}
+      shell: bash
 
     - uses: Swatinem/rust-cache@v2
       with:
